@@ -133,15 +133,46 @@ Note: NO DICOMDIR on disc (paths incompatible with flat layout).
 - Increasing to `-Xmx1280m` on 32-bit makes scrolling and everything worse (not enough native memory)
 - **Solution implemented**: dual JRE (x86 + x64) with architecture auto-detection
 
+### SESSION 2026-02-21 (latest changes):
+
+#### Tested disc with single JRE x86 (768m):
+- Launch: 5 min first time, 3 min second time (bundles cached)
+- Scrolling: smooth after second launch
+- MPR 3D on 625 images (1.5mm CT): coronal/sagittal stay at 0%, never load
+- MPR 3D on 125 images (5mm CT): OpenCV error `alloc.cpp:73: (-4: insufficient memory) Failed to allocate 524288 bytes`
+
+#### Tested -Xmx1280m on 32-bit JRE - WORSE:
+- Scrolling became jerky/difficult (images jumping around)
+- MPR 3D still doesn't work
+- Root cause: 32-bit process has ~2GB total address space. 1280m heap leaves too little for native memory (OpenCV, JVM internals, thread stacks). Reverted to 768m.
+
+#### Solution implemented - Dual JRE with auto-detection:
+- **setup.ps1** updated: downloads both JRE x86 (38 MB) + JRE x64 (38 MB) from Adoptium
+- **start-weasis.bat** rewritten with:
+  - Architecture detection via `%PROCESSOR_ARCHITECTURE%` + `%PROCESSOR_ARCHITEW6432%`
+  - x64 detected → `jre/windows-x64/` with `-Xmx2048m`
+  - x86 fallback → `jre/windows/` with `-Xmx768m`
+  - Loading message displayed for 5 seconds: "Se incarca, va rugam asteptati..."
+  - Shows which JRE is being used (32-bit/64-bit)
+- **burn.ps1** updated: `Test-WeasisPortable` accepts either/both JRE, reports which JREs on disc
+- **clean-and-launch.bat** improved: auto-detects disc drive letter (D-I), no longer hardcoded F:\
+- **setup.ps1 run successfully**: JRE x64 downloaded (OpenJDK 1.8.0_482), total Weasis+JRE = 485.9 MB
+- DVD space remaining for DICOM: ~4.2 GB
+
+#### Memory settings rationale:
+- **x86 (32-bit)**: `-Xmx768m` - sweet spot. Higher breaks native memory. MPR 3D not feasible.
+- **x64 (64-bit)**: `-Xmx2048m` - plenty of headroom. Should support MPR 3D on large CT studies.
+- Never use `-Xmx1280m` on 32-bit - it's worse than 768m for everything.
+
 ### PENDING TEST:
-- Burn disc with dual JRE (x86 + x64) and test MPR 3D with 64-bit JRE (-Xmx2048m)
-- Run setup.ps1 to download JRE x64
+- User is burning disc with dual JRE now
+- Test MPR 3D with 64-bit JRE (-Xmx2048m) on 625 images (1.5mm CT)
+- Verify loading message appears correctly on disc launch
+- Verify architecture auto-detection works (should show "JRE: 64-bit" on modern PCs)
 
 ### NEXT STEPS:
-- Run setup.ps1 to download JRE x64 (Adoptium OpenJDK 8 x64)
-- Burn test disc with dual JRE
-- Test MPR 3D on 64-bit with 2048m heap
-- Consider removing viewer-win32.exe and weasis-viewer.bat from disc
+- Evaluate MPR 3D test results with x64 JRE
+- Consider removing viewer-win32.exe and weasis-viewer.bat from disc (don't work, cause confusion)
 - Create .gitignore (tools/ folder excluded)
 - Test on another computer (clean environment, no .weasis cache)
 
