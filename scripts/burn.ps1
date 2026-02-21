@@ -404,12 +404,6 @@ function Cleanup {
 # MAIN
 # ============================================================================
 
-Write-Host ""
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "  DICOM DVD Burn - Weasis Portable" -ForegroundColor Cyan
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host ""
-
 # Step 1: Verify Weasis is set up
 Test-WeasisPortable
 

@@ -164,15 +164,75 @@ Note: NO DICOMDIR on disc (paths incompatible with flat layout).
 - **x64 (64-bit)**: `-Xmx2048m` - plenty of headroom. Should support MPR 3D on large CT studies.
 - Never use `-Xmx1280m` on 32-bit - it's worse than 768m for everything.
 
+### SESSION 2026-02-21 (session 2 — fast launch, DVD branding, IMAPI2 fix):
+
+#### start-weasis.bat — Major rewrite (copy-to-HDD as default):
+Previous behavior: launched Weasis directly from DVD (~5 min startup due to random I/O on optical media).
+New behavior: copies Weasis to local HDD first, then launches from there (~1-2 min total).
+
+**Why 5 min startup from DVD**: OSGI framework (Felix) loads dozens of bundles from `bundle/` folder.
+Each bundle = random seek on DVD (~100-200ms per seek vs 0.1ms on SSD). Sequential copy is fast,
+random reads are extremely slow on optical media.
+
+**Fast launch flow (Method 2 — default)**:
+1. Check free space on `%TEMP%` drive (need ~500 MB) via PowerShell
+2. Clean old `%TEMP%\weasis-dvd\` folder from previous session
+3. Create temp folder
+4. Copy sequentially from DVD: JARs, bundles, conf, resources, JRE (only needed architecture)
+5. Create junction (`mklink /J`) for DICOM → DVD (no copy, reads from disc)
+6. Verify 5 essential files exist (weasis-launcher.jar, felix.jar, substance.jar, javaw.exe, config.properties)
+7. Launch Weasis from local copy
+8. Verify javaw.exe actually started (antivirus may block execution from `%TEMP%`)
+
+**6 auto-fallback points to direct DVD launch (Method 1)**:
+- Insufficient disk space (< 500 MB)
+- Old temp folder locked (another Weasis running)
+- Cannot create temp folder (permissions)
+- Copy failed (files missing after copy)
+- Antivirus blocks javaw.exe from `%TEMP%` (checked 3 sec after launch via tasklist)
+- PowerShell unavailable → skips space check, continues anyway
+
+**Junction for DICOM**: `mklink /J "%TEMP%\weasis-dvd\DICOM" "D:\DICOM"` — Weasis sees DICOM
+as local folder but reads from DVD. No copy needed. If junction fails (policy restrictions),
+falls back to xcopy. Junction removed safely with `rmdir` (doesn't delete DVD data).
+
+**Local storage on doctor's PC**: `%TEMP%\weasis-dvd\` (~150-200 MB) — auto-cleaned at next launch.
+Plus `%USERPROFILE%\.weasis\` (~100-500 MB cache+prefs) — doesn't accumulate, overwrites each time.
+Decision: no cleanup at exit needed, acceptable footprint.
+
+#### autorun.inf — Weasis branding on DVD:
+- `icon=viewer-win32.exe,0` — extracts Weasis icon from Launch4j wrapper exe
+- `label=Weasis DICOM Viewer` — shows in Windows Explorer
+- Windows reads autorun.inf for icon/label even when autorun execution is blocked (Win 10+)
+
+#### burn.ps1 — DVD label + CRITICAL IMAPI2 fix:
+- `VolumeName` changed: `"DICOM"` → `"Weasis DICOM"`
+- **CRITICAL FIX**: Added `$fsImage.FreeMediaBlocks = $discFormat.TotalSectorsOnMedia`
+  - Without this, IMAPI2 `MsftFileSystemImage` defaults to **CD capacity (~700 MB)**
+  - Any disc content > 700 MB caused error: `"Adding 'file.DCM' would result in a result image having a size larger than the current configured limit"`
+  - Fix reads actual media capacity from inserted disc and sets it on the filesystem image
+  - Also displays capacity: `"Capacitate disc: 4489 MB"` for DVD-R
+- This bug only appeared with larger DICOM datasets (>700 MB total with Weasis)
+
+#### Weasis scrolling behavior — documented (not fixable):
+- **First scroll down**: jerky — each DICOM image decompressed on-demand (lazy decompression)
+- **Scroll up / second scroll down**: smooth — pixels already in memory cache
+- **MPR orthogonal**: smooth from start — all slices pre-decompressed for 3D volume reconstruction
+- This is architectural (Java lazy decompression), no config option to enable prefetch in Weasis 3.7.1
+- RadiAnt (C++ native) doesn't have this issue due to multi-threaded prefetch
+
 ### PENDING TEST:
-- User is burning disc with dual JRE now
+- Test fast launch method (Method 2) from burned disc
+- Verify copy time (~1-2 min expected)
+- Verify antivirus doesn't block javaw.exe from %TEMP%
+- Verify Weasis icon appears on DVD in Explorer
+- Verify "Weasis DICOM" label on disc
+- Test with large DICOM dataset (>700 MB) — IMAPI2 fix should resolve burn error
 - Test MPR 3D with 64-bit JRE (-Xmx2048m) on 625 images (1.5mm CT)
-- Verify loading message appears correctly on disc launch
-- Verify architecture auto-detection works (should show "JRE: 64-bit" on modern PCs)
 
 ### NEXT STEPS:
-- Evaluate MPR 3D test results with x64 JRE
 - Consider removing viewer-win32.exe and weasis-viewer.bat from disc (don't work, cause confusion)
+  - Note: viewer-win32.exe is now used for icon (`autorun.inf icon=viewer-win32.exe,0`), so KEEP it
 - Create .gitignore (tools/ folder excluded)
 - Test on another computer (clean environment, no .weasis cache)
 
