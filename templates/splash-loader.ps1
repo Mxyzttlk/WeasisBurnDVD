@@ -651,6 +651,20 @@ $window.Add_MouseLeftButtonDown({
 })
 
 # ============================================================================
+# HIDE PARENT CMD WINDOW (WPF splash replaces it as the UI)
+# ============================================================================
+try {
+    Add-Type -Name Win32 -Namespace Native -MemberDefinition @'
+        [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+        [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+'@
+    $consoleWindow = [Native.Win32]::GetConsoleWindow()
+    if ($consoleWindow -ne [IntPtr]::Zero) {
+        [Native.Win32]::ShowWindow($consoleWindow, 0) | Out-Null  # SW_HIDE = 0
+    }
+} catch { }
+
+# ============================================================================
 # SHOW WINDOW (blocks until closed)
 # ============================================================================
 $window.ShowDialog() | Out-Null
