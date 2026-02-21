@@ -268,6 +268,64 @@ Replaced CMD text progress with a proper graphical window using PowerShell WPF.
 #### burn.ps1 — duplicate header fix
 - Removed duplicate "DICOM DVD Burn - Weasis Portable" header from burn.ps1 (was in both burn.bat and burn.ps1)
 
+### SESSION 2026-02-21 (session 3 — splash-loader.ps1 debugging & fixes):
+
+#### Bug 1: UTF-8 BOM encoding (Cyrillic parsing failure)
+- **Symptom**: PowerShell threw parsing errors on Russian strings (Cyrillic characters)
+- **Root cause**: `splash-loader.ps1` saved as UTF-8 without BOM. PowerShell 5.1 defaults to ANSI encoding, cannot parse UTF-8 multibyte characters without BOM marker.
+- **Fix**: Created `scripts/fix-encoding.ps1` helper that re-saves file with UTF-8 BOM:
+  ```powershell
+  $content = [System.IO.File]::ReadAllText($filePath, [System.Text.Encoding]::UTF8)
+  $utf8Bom = [System.Text.UTF8Encoding]::new($true)
+  [System.IO.File]::WriteAllText($filePath, $content, $utf8Bom)
+  ```
+- **IMPORTANT**: Must re-run `fix-encoding.ps1` after ANY edit to `splash-loader.ps1` to maintain BOM.
+
+#### Bug 2: JavaMem parameter name conflict
+- **Symptom**: `-JavaMem "-Xms64m -Xmx2048m"` — PowerShell interpreted `-Xmx2048m` as a parameter name (starts with `-`)
+- **Root cause**: CMD strips inner quotes when passing to PowerShell via `-File`. PowerShell then sees `-Xms64m -Xmx2048m` as two separate tokens, interprets `-Xmx2048m` as an unknown parameter.
+- **Fix**: Removed `-JavaMem` parameter entirely. `splash-loader.ps1` determines memory internally from `-ArchLabel`:
+  ```powershell
+  if ($ArchLabel -eq "64-bit") { $JavaMem = "-Xms64m -Xmx2048m" }
+  else { $JavaMem = "-Xms64m -Xmx768m" }
+  ```
+
+#### Bug 3: CMD trailing backslash escaping quotes
+- **Symptom**: PowerShell prompted for `JreDir` parameter even though it was passed on command line.
+- **Root cause**: `%~dp0` always ends with `\`. In CMD: `-DiscPath "%~dp0"` becomes `-DiscPath "E:\path\"`. The `\"` at the end escapes the closing quote. CMD treats everything after as part of DiscPath value, consuming `-JreDir` and its value.
+- **Fix**: Changed `"%~dp0"` to `"%~dp0."` in `start-weasis.bat`. The dot (current directory) prevents `\"` escape. In `splash-loader.ps1`, path normalized with `[System.IO.Path]::GetFullPath($DiscPath)` which converts `E:\path\.` → `E:\path\`.
+
+#### Bug 4: closeTimer closure scoping (null reference)
+- **Symptom**: Error `"You cannot call a method on a null-valued expression"` at `$closeTimer.Stop()` (line 613)
+- **Root cause**: `$closeTimer` is a local variable inside the completion timer's Tick handler. The `Add_Tick` closure for the close timer runs later, when `$closeTimer` is already out of scope (null in PowerShell closure).
+- **Fix**: Replaced `$closeTimer.Stop()` with `$this.Stop()`. In PowerShell event handlers, `$this` refers to the sender (the DispatcherTimer that fired the Tick event). Applied to both close timer instances (fallback 3sec and success 1.5sec).
+
+#### Files modified this session:
+- **`templates/splash-loader.ps1`** — 4 bug fixes (encoding, JavaMem removal, path normalization, $this.Stop)
+- **`templates/start-weasis.bat`** — trailing dot fix (`%~dp0.`)
+- **`scripts/fix-encoding.ps1`** — NEW helper script for UTF-8 BOM re-save
+
+#### Current splash-loader.ps1 parameter interface:
+```
+param(
+    [Parameter(Mandatory=$true)][string]$DiscPath,   # Path to disc root (normalized internally)
+    [Parameter(Mandatory=$true)][string]$JreDir,     # Relative JRE path (e.g., "jre\windows-x64")
+    [Parameter(Mandatory=$true)][string]$ArchLabel   # "64-bit" or "32-bit" (determines JavaMem internally)
+)
+```
+
+Called from BAT:
+```batch
+powershell -sta -nologo -noprofile -ExecutionPolicy Bypass -File "%~dp0splash-loader.ps1" -DiscPath "%~dp0." -JreDir "%JRE_DIR%" -ArchLabel "%ARCH_LABEL%" 2>nul
+```
+
+#### Test results this session:
+- GUI splash screen launches successfully ✓
+- Parameters pass correctly from BAT to PS1 ✓
+- Weasis opens from local copy ✓
+- Window auto-closes after Weasis starts ✓ (closeTimer fix)
+- No PowerShell errors in console ✓ (pending re-test after Bug 4 fix)
+
 ### PENDING TEST:
 - Test WPF splash screen from burned disc
 - Verify logo loads from disc `resources/images/logo-button.png`

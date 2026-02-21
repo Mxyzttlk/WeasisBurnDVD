@@ -35,7 +35,7 @@ exit /b 1
 
 :LAUNCH_GUI
 REM Launch PowerShell WPF splash screen (handles copy, progress, launch)
-powershell -sta -nologo -noprofile -ExecutionPolicy Bypass -File "%~dp0splash-loader.ps1" -DiscPath "%~dp0" -JreDir "%JRE_DIR%" -JavaMem "%JAVA_MEM%" -ArchLabel "%ARCH_LABEL%" 2>nul
+powershell -sta -nologo -noprofile -ExecutionPolicy Bypass -File "%~dp0splash-loader.ps1" -DiscPath "%~dp0." -JreDir "%JRE_DIR%" -ArchLabel "%ARCH_LABEL%" 2>nul
 
 if %ERRORLEVEL% EQU 0 exit /b 0
 

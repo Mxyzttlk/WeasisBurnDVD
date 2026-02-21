@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # Weasis DICOM Viewer - WPF Splash Screen & Loader
 # Copies Weasis from DVD to local HDD for fast launch, with GUI progress.
 # Falls back to direct DVD launch on any failure.
@@ -8,9 +8,18 @@
 param(
     [Parameter(Mandatory=$true)][string]$DiscPath,
     [Parameter(Mandatory=$true)][string]$JreDir,
-    [Parameter(Mandatory=$true)][string]$JavaMem,
     [Parameter(Mandatory=$true)][string]$ArchLabel
 )
+
+# Normalize DiscPath (removes trailing "\." from BAT workaround for CMD quote escaping)
+$DiscPath = [System.IO.Path]::GetFullPath($DiscPath)
+
+# Determine Java memory based on architecture (avoids CMD quoting issues with -Xmx)
+if ($ArchLabel -eq "64-bit") {
+    $JavaMem = "-Xms64m -Xmx2048m"
+} else {
+    $JavaMem = "-Xms64m -Xmx768m"
+}
 
 # --- STA Guard (WPF requires Single-Threaded Apartment) ---
 if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
@@ -588,7 +597,7 @@ $completionTimer.Add_Tick({
             $closeTimer = New-Object System.Windows.Threading.DispatcherTimer
             $closeTimer.Interval = [TimeSpan]::FromSeconds(3)
             $closeTimer.Add_Tick({
-                $closeTimer.Stop()
+                $this.Stop()
                 $window.Close()
             })
             $closeTimer.Start()
@@ -601,7 +610,7 @@ $completionTimer.Add_Tick({
             $closeTimer = New-Object System.Windows.Threading.DispatcherTimer
             $closeTimer.Interval = [TimeSpan]::FromSeconds(1.5)
             $closeTimer.Add_Tick({
-                $closeTimer.Stop()
+                $this.Stop()
                 $window.Close()
             })
             $closeTimer.Start()

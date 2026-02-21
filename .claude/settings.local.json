@@ -24,7 +24,12 @@
       "WebFetch(domain:dcm4che.atlassian.net)",
       "WebFetch(domain:www.hybrid-analysis.com)",
       "Bash(powershell -Command:*)",
-      "Bash(powershell -ExecutionPolicy Bypass -Command:*)"
+      "Bash(powershell -ExecutionPolicy Bypass -Command:*)",
+      "Bash(powershell -sta -nologo -noprofile -ExecutionPolicy Bypass -File:*)",
+      "Bash(powershell.exe -nologo -noprofile -command \"$c = [System.IO.File]::ReadAllText\\(''E:\\\\Weasis Burn\\\\templates\\\\splash-loader.ps1'', [System.Text.Encoding]::UTF8\\); [System.IO.File]::WriteAllText\\(''E:\\\\Weasis Burn\\\\templates\\\\splash-loader.ps1'', $c, [System.Text.UTF8Encoding]::new\\($true\\)\\)\")",
+      "Bash(powershell.exe -nologo -noprofile -ExecutionPolicy Bypass -File \"E:\\\\Weasis Burn\\\\scripts\\\\fix-encoding.ps1\")",
+      "Bash(powershell.exe -sta -nologo -noprofile -ExecutionPolicy Bypass -File \"E:\\\\Weasis Burn\\\\templates\\\\splash-loader.ps1\" -DiscPath \"E:\\\\Weasis Burn\\\\tools\\\\weasis-portable\"\" -JreDir \"jrewindows-x64\" -JavaMem \"-Xms64m -Xmx2048m\" -ArchLabel \"64-bit \")",
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File:*)"
     ]
   }
 }
