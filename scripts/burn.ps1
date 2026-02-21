@@ -337,7 +337,11 @@ function Burn-ToDisc {
         # Create file system image - ISO 9660 + Joliet (critical for compatibility!)
         $fsImage = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
         $fsImage.FileSystemsToCreate = 3  # FsiFileSystemJoliet (2) + FsiFileSystemISO9660 (1) = 3
-        $fsImage.VolumeName = "DICOM"
+        $fsImage.VolumeName = "Weasis DICOM"
+
+        # Set media capacity from actual disc (critical! default is CD-sized ~700 MB)
+        $fsImage.FreeMediaBlocks = $discFormat.TotalSectorsOnMedia
+        Write-Host "    Capacitate disc: $([math]::Round($discFormat.TotalSectorsOnMedia * 2048 / 1MB)) MB" -ForegroundColor Gray
 
         # Add all files from staging
         Write-Host "    Adaug fisierele pe disc..." -ForegroundColor Gray
