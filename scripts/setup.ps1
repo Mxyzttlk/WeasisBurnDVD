@@ -1,0 +1,244 @@
+# ============================================================================
+# Setup Script - Downloads Weasis Portable + JRE
+# Run this ONCE before first burn
+# ============================================================================
+
+$ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+$ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$ToolsDir    = Join-Path $ProjectRoot "tools"
+$WeasisDir   = Join-Path $ToolsDir "weasis-portable"
+
+function Write-Status($msg) {
+    Write-Host ""
+    Write-Host ">>> $msg" -ForegroundColor Cyan
+}
+
+function Write-Ok($msg) {
+    Write-Host "    [OK] $msg" -ForegroundColor Green
+}
+
+function Download-File {
+    param(
+        [string]$Url,
+        [string]$OutFile
+    )
+    $ProgressPreference = 'SilentlyContinue'
+    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -MaximumRedirection 20
+    $ProgressPreference = 'Continue'
+}
+
+# ============================================================================
+# Step 1: Download Weasis Portable 3.7.1
+# ============================================================================
+
+$weasisZipPath = Join-Path $ToolsDir "weasis-portable.zip"
+$weasisUrl = "https://sourceforge.net/projects/dcm4che/files/Weasis/3.7.1/weasis-portable.zip/download"
+
+if (Test-Path $WeasisDir) {
+    Write-Status "Weasis portable deja exista in: $WeasisDir"
+    $overwrite = Read-Host "    Vrei sa-l redescarci? (da/nu)"
+    if ($overwrite -ne "da" -and $overwrite -ne "d") {
+        Write-Ok "Pastrez versiunea existenta"
+    } else {
+        Remove-Item -Recurse -Force $WeasisDir
+    }
+}
+
+if (-not (Test-Path $WeasisDir)) {
+    New-Item -ItemType Directory -Path $ToolsDir -Force | Out-Null
+
+    Write-Status "Descarc Weasis Portable 3.7.1..."
+    Write-Host ""
+    Write-Host "    SourceForge necesita descarcare prin browser." -ForegroundColor Yellow
+    Write-Host "    Deschid browserul automat..." -ForegroundColor Yellow
+    Write-Host ""
+
+    # Open browser to download page
+    Start-Process $weasisUrl
+
+    Write-Host "    1. Asteapta sa inceapa descarcarea in browser" -ForegroundColor White
+    Write-Host "    2. Salveaza fisierul (sau lasa-l in Downloads)" -ForegroundColor White
+    Write-Host "    3. Apasa ENTER cand descarcarea este completa" -ForegroundColor White
+    Write-Host ""
+    Read-Host "    Apasa ENTER cand ai descarcat weasis-portable.zip"
+
+    # Search for the downloaded file in common locations
+    $searchLocations = @(
+        (Join-Path $env:USERPROFILE "Downloads\weasis-portable.zip"),
+        (Join-Path $env:USERPROFILE "Desktop\weasis-portable.zip"),
+        $weasisZipPath
+    )
+
+    $foundZip = $null
+    foreach ($loc in $searchLocations) {
+        if (Test-Path $loc) {
+            $foundZip = $loc
+            break
+        }
+    }
+
+    if (-not $foundZip) {
+        Write-Host "    Nu am gasit weasis-portable.zip in locatiile obisnuite." -ForegroundColor Yellow
+        $customPath = Read-Host "    Introdu calea completa catre fisierul descarcat"
+        $customPath = $customPath.Trim('"', "'", ' ')
+        if (Test-Path $customPath) {
+            $foundZip = $customPath
+        } else {
+            Write-Host "    [EROARE] Fisierul nu exista: $customPath" -ForegroundColor Red
+            exit 1
+        }
+    }
+
+    Write-Ok "Gasit: $foundZip ($('{0:N1}' -f ((Get-Item $foundZip).Length / 1MB)) MB)"
+
+    # Move to tools dir if not already there
+    if ($foundZip -ne $weasisZipPath) {
+        Copy-Item -Path $foundZip -Destination $weasisZipPath -Force
+    }
+
+    # Extract
+    Write-Status "Extrag Weasis Portable..."
+    Expand-Archive -Path $weasisZipPath -DestinationPath $ToolsDir -Force
+
+    # Rename if needed
+    $extractedDir = Get-ChildItem -Path $ToolsDir -Directory | Where-Object { $_.Name -match "weasis" } | Select-Object -First 1
+    if ($extractedDir -and $extractedDir.Name -ne "weasis-portable") {
+        Rename-Item -Path $extractedDir.FullName -NewName "weasis-portable"
+    }
+
+    # Clean up zip
+    Remove-Item -Path $weasisZipPath -Force
+    Write-Ok "Weasis Portable extras"
+}
+
+# ============================================================================
+# Step 2: Download JRE (Adoptium OpenJDK 8, 32-bit for max compatibility)
+# ============================================================================
+
+$jreWindowsDir = Join-Path $WeasisDir "jre\windows"
+
+if (Test-Path (Join-Path $jreWindowsDir "bin\java.exe")) {
+    Write-Ok "JRE deja instalat in Weasis portable"
+} else {
+    Write-Status "Descarc JRE (Adoptium OpenJDK 8, x86)..."
+
+    # Adoptium/Temurin JRE 8 x86 Windows - this URL follows redirects properly
+    $jreUrl = "https://api.adoptium.net/v3/binary/latest/8/ga/windows/x86/jre/hotspot/normal/eclipse"
+    $jreZipPath = Join-Path $ToolsDir "jre8-x86.zip"
+
+    Write-Host "    Aceasta poate dura cateva minute..." -ForegroundColor Yellow
+
+    try {
+        Download-File -Url $jreUrl -OutFile $jreZipPath
+    } catch {
+        Write-Host "    Descarcare automata esuata. Deschid browserul..." -ForegroundColor Yellow
+        Start-Process $jreUrl
+        Write-Host ""
+        Write-Host "    Salveaza fisierul .zip descarcat si apasa ENTER" -ForegroundColor White
+        Read-Host
+
+        # Search for it
+        $jreDownloaded = Get-ChildItem -Path (Join-Path $env:USERPROFILE "Downloads") -Filter "OpenJDK8U-jre*x86*windows*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($jreDownloaded) {
+            Copy-Item -Path $jreDownloaded.FullName -Destination $jreZipPath -Force
+        } else {
+            $customPath = Read-Host "    Introdu calea catre fisierul JRE .zip descarcat"
+            $customPath = $customPath.Trim('"', "'", ' ')
+            if (Test-Path $customPath) {
+                Copy-Item -Path $customPath -Destination $jreZipPath -Force
+            } else {
+                Write-Host "    [EROARE] Fisierul nu exista." -ForegroundColor Red
+                exit 1
+            }
+        }
+    }
+
+    Write-Ok "JRE descarcat: $('{0:N1}' -f ((Get-Item $jreZipPath).Length / 1MB)) MB"
+
+    # Extract JRE
+    Write-Status "Extrag JRE..."
+    $jreTempDir = Join-Path $ToolsDir "jre-temp"
+    Expand-Archive -Path $jreZipPath -DestinationPath $jreTempDir -Force
+
+    # Find the JRE root (usually jdk8uXXX-jre or similar)
+    $jreRoot = Get-ChildItem -Path $jreTempDir -Directory | Select-Object -First 1
+
+    # Create target directory and copy
+    New-Item -ItemType Directory -Path $jreWindowsDir -Force | Out-Null
+    Copy-Item -Path (Join-Path $jreRoot.FullName "*") -Destination $jreWindowsDir -Recurse -Force
+
+    # Clean up
+    Remove-Item -Path $jreZipPath -Force
+    Remove-Item -Path $jreTempDir -Recurse -Force
+
+    # Verify
+    $javaExe = Join-Path $jreWindowsDir "bin\java.exe"
+    if (Test-Path $javaExe) {
+        Write-Ok "JRE instalat cu succes"
+        # Java outputs version to stderr, so we capture it without triggering error
+        $version = cmd /c "`"$javaExe`" -version 2>&1"
+        Write-Host "    $($version[0])" -ForegroundColor Gray
+    } else {
+        Write-Host "    [ATENTIE] java.exe nu a fost gasit la calea asteptata." -ForegroundColor Yellow
+        Write-Host "    Structura JRE descarcata:" -ForegroundColor Yellow
+        Get-ChildItem -Path $jreWindowsDir -Depth 1 | ForEach-Object {
+            Write-Host "      $($_.FullName)" -ForegroundColor Gray
+        }
+        Write-Host ""
+        Write-Host "    Posibil trebuie mutat manual continutul." -ForegroundColor Yellow
+        Write-Host "    Calea corecta: $jreWindowsDir\bin\java.exe" -ForegroundColor Yellow
+    }
+}
+
+# ============================================================================
+# Step 3: Verify everything
+# ============================================================================
+
+Write-Status "Verificare finala..."
+
+$checks = @(
+    @{ Path = (Join-Path $WeasisDir "viewer-win32.exe"); Name = "viewer-win32.exe (launcher)" },
+    @{ Path = (Join-Path $WeasisDir "weasis-launcher.jar"); Name = "weasis-launcher.jar" },
+    @{ Path = (Join-Path $WeasisDir "felix.jar"); Name = "felix.jar (OSGI framework)" },
+    @{ Path = (Join-Path $WeasisDir "conf\config.properties"); Name = "conf/config.properties" },
+    @{ Path = (Join-Path $WeasisDir "bundle"); Name = "bundle/ folder" },
+    @{ Path = (Join-Path $jreWindowsDir "bin\java.exe"); Name = "jre/windows/bin/java.exe" },
+    @{ Path = (Join-Path $ProjectRoot "templates\autorun.inf"); Name = "templates/autorun.inf" },
+    @{ Path = (Join-Path $ProjectRoot "templates\README.html"); Name = "templates/README.html" },
+    @{ Path = (Join-Path $ProjectRoot "burn.bat"); Name = "burn.bat" }
+)
+
+$allGood = $true
+foreach ($check in $checks) {
+    if (Test-Path $check.Path) {
+        Write-Ok $check.Name
+    } else {
+        Write-Host "    [LIPSA] $($check.Name)" -ForegroundColor Red
+        $allGood = $false
+    }
+}
+
+# Show total size of Weasis portable + JRE
+$weasisSize = (Get-ChildItem -Path $WeasisDir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+$weasisSizeMB = [math]::Round($weasisSize / 1MB, 1)
+Write-Host ""
+Write-Host "    Dimensiune Weasis + JRE: $weasisSizeMB MB" -ForegroundColor White
+Write-Host "    Spatiu ramas pe DVD pentru DICOM: $([math]::Round(4700 - $weasisSizeMB, 0)) MB" -ForegroundColor White
+
+if ($allGood) {
+    Write-Host ""
+    Write-Host "============================================" -ForegroundColor Green
+    Write-Host "  SETUP COMPLET!" -ForegroundColor Green
+    Write-Host "============================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  Acum poti folosi burn.bat:" -ForegroundColor White
+    Write-Host "    1. Trage un ZIP peste burn.bat" -ForegroundColor White
+    Write-Host "    2. Sau ruleaza: burn.bat cale\catre\fisier.zip" -ForegroundColor White
+    Write-Host ""
+} else {
+    Write-Host ""
+    Write-Host "  SETUP INCOMPLET - rezolva problemele de mai sus" -ForegroundColor Red
+    Write-Host ""
+}

@@ -1,0 +1,4 @@
+[autorun]
+open=start-weasis.bat
+label=DICOM Viewer
+action=Open DICOM Viewer (Weasis)

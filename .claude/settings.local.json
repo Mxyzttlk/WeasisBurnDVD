@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(test:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:weasis.org)",
+      "Bash(powershell -Command \"try { [System.Activator]::CreateInstance\\([Type]::GetTypeFromProgID\\(''IMAPI2.MsftDiscMaster2''\\)\\); Write-Host ''IMAPI2 OK'' } catch { Write-Host \\(''IMAPI2 EROARE: '' + $_Exception.Message\\) }\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File:*)",
+      "WebFetch(domain:sourceforge.net)",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"Write-Host ''n'' | powershell -ExecutionPolicy Bypass -File ''E:/Weasis Burn/scripts/setup.ps1''\")",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"Get-ChildItem -Path ''E:/Weasis Burn/tools/weasis-portable'' -Depth 1 | ForEach-Object { Write-Host $_FullName }\")",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"Get-WmiObject -Class Win32_CDROMDrive | Select-Object Name, Drive, MediaLoaded, Status\")",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"Get-Volume -DriveLetter F | Select-Object DriveLetter, FileSystemLabel, FileSystem, Size, SizeRemaining\")",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"Get-ChildItem -Path ''F:\\\\'' -ErrorAction Stop | Select-Object Name, Length, PSIsContainer\")",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"Test-Path ''F:\\\\jre\\\\windows\\\\bin\\\\java.exe''\")",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"& ''F:\\\\jre\\\\windows\\\\bin\\\\java.exe'' -version 2>&1 | Out-String\")",
+      "Bash(\"jre/windows/bin/java.exe\" -jar felix.jar)",
+      "Bash(unzip:*)",
+      "Bash(\"jre/windows/bin/jar.exe\" tf felix.jar)",
+      "Bash(\"jre/windows/bin/jar\" tf felix.jar)",
+      "Bash(python3:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:dcm4che.atlassian.net)",
+      "WebFetch(domain:www.hybrid-analysis.com)",
+      "Bash(powershell -Command:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -Command:*)"
+    ]
+  }
+}
