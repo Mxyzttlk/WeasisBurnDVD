@@ -213,13 +213,14 @@ function Copy-WeasisToStaging {
 }
 
 function Copy-TemplatesToStaging {
-    Write-Status "Copiez autorun.inf, start-weasis.bat si README..."
+    Write-Status "Copiez autorun.inf, start-weasis.bat, splash-loader.ps1 si README..."
 
     Copy-Item -Path (Join-Path $TemplatesDir "autorun.inf") -Destination $DiscStaging -Force
     Copy-Item -Path (Join-Path $TemplatesDir "start-weasis.bat") -Destination $DiscStaging -Force
+    Copy-Item -Path (Join-Path $TemplatesDir "splash-loader.ps1") -Destination $DiscStaging -Force
     Copy-Item -Path (Join-Path $TemplatesDir "README.html") -Destination $DiscStaging -Force
 
-    Write-Ok "autorun.inf si README.html copiate"
+    Write-Ok "autorun.inf, splash-loader.ps1 si README.html copiate"
 }
 
 function Show-DiscSummary {

@@ -221,18 +221,71 @@ Decision: no cleanup at exit needed, acceptable footprint.
 - This is architectural (Java lazy decompression), no config option to enable prefetch in Weasis 3.7.1
 - RadiAnt (C++ native) doesn't have this issue due to multi-threaded prefetch
 
+#### splash-loader.ps1 — NEW: WPF GUI Splash Screen
+Replaced CMD text progress with a proper graphical window using PowerShell WPF.
+
+**Architecture**:
+- `start-weasis.bat` — simplified to thin wrapper: detects architecture, launches PowerShell splash
+- `splash-loader.ps1` — NEW: WPF GUI with all copy/verify/launch logic
+- `burn.ps1` — updated to copy splash-loader.ps1 to disc
+
+**GUI Features**:
+- 500x420px borderless window, dark theme (#1E1E1E), Weasis green (#0F9B58) accents
+- Logo (logo-button.png from disc), title "Weasis v3.7.1"
+- Animated "Loading..." text with cycling dots (DispatcherTimer 400ms)
+- Localized wait message based on system language
+- Determinate progress bar (0-100%) with 6 copy steps
+- Color-coded log area (Consolas): green [OK], red [X], yellow [!], green [n/6]
+- JRE architecture label bottom-right
+- Window is draggable (borderless, MouseLeftButtonDown → DragMove)
+- Auto-closes 1.5 sec after Weasis launches successfully
+
+**Multilingual support (RO/RU/EN)**:
+- Detects via `(Get-Culture).TwoLetterISOLanguageName`
+- ALL text is translated — UI labels AND log messages (~25 strings per language)
+- Romanian (ro), Russian (ru), English (default)
+
+**32-bit warning**:
+- If x86 architecture detected, shows warning screen BEFORE loading:
+  "Arhitectura calculatorului este pe 32 de biți. Se recomandă utilizarea aplicației RadiAnt pentru o experiență optimă."
+- Two buttons: "Continuă" (green) / "Închide" (red) — both translated
+- "Continuă" → proceeds to copy/launch; "Închide" → closes, exit
+
+**Background worker**:
+- Copy operations run in MTA runspace (separate thread)
+- UI updates via Dispatcher.Invoke() (thread-safe)
+- WPF objects (Run, LineBreak, Brush) created exclusively on UI thread
+- Completion timer (500ms) polls Completed flag, closes window
+
+**3-tier fallback chain**:
+1. WPF splash (copy to HDD + launch from temp) — normal experience
+2. DVD fallback WITH GUI (splash shows message, launches from disc) — if copy fails
+3. CMD fallback WITHOUT GUI (text in cmd.exe) — if PowerShell/WPF completely unavailable
+
+**DVD disc structure change**:
+- Added `splash-loader.ps1` (~12 KB) — negligible space impact
+
+#### burn.ps1 — duplicate header fix
+- Removed duplicate "DICOM DVD Burn - Weasis Portable" header from burn.ps1 (was in both burn.bat and burn.ps1)
+
 ### PENDING TEST:
-- Test fast launch method (Method 2) from burned disc
-- Verify copy time (~1-2 min expected)
-- Verify antivirus doesn't block javaw.exe from %TEMP%
-- Verify Weasis icon appears on DVD in Explorer
+- Test WPF splash screen from burned disc
+- Verify logo loads from disc `resources/images/logo-button.png`
+- Verify animated loading dots
+- Verify progress bar advances through [1/6]-[6/6]
+- Verify color-coded log messages
+- Verify window auto-closes when Weasis opens
+- Verify 32-bit warning appears on x86 systems
+- Verify language detection (test with RO/RU/EN system locale)
+- Verify DVD fallback with GUI when copy fails
+- Verify CMD fallback when PowerShell unavailable
+- Verify Weasis icon on DVD in Explorer
 - Verify "Weasis DICOM" label on disc
-- Test with large DICOM dataset (>700 MB) — IMAPI2 fix should resolve burn error
-- Test MPR 3D with 64-bit JRE (-Xmx2048m) on 625 images (1.5mm CT)
+- Test with large DICOM dataset (>700 MB) — IMAPI2 fix
+- Test MPR 3D with 64-bit JRE (-Xmx2048m)
 
 ### NEXT STEPS:
-- Consider removing viewer-win32.exe and weasis-viewer.bat from disc (don't work, cause confusion)
-  - Note: viewer-win32.exe is now used for icon (`autorun.inf icon=viewer-win32.exe,0`), so KEEP it
+- viewer-win32.exe KEEP on disc (used for `autorun.inf icon=viewer-win32.exe,0`)
 - Create .gitignore (tools/ folder excluded)
 - Test on another computer (clean environment, no .weasis cache)
 
