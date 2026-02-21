@@ -36,26 +36,26 @@ function Write-Err($msg) {
 }
 
 function Test-WeasisPortable {
-    $viewerExe  = Join-Path $WeasisDir "viewer-win32.exe"
     $launcherJar = Join-Path $WeasisDir "weasis-launcher.jar"
-    $jrePath    = Join-Path $WeasisDir "jre\windows\bin\java.exe"
+    $jreX86Path  = Join-Path $WeasisDir "jre\windows\bin\java.exe"
+    $jreX64Path  = Join-Path $WeasisDir "jre\windows-x64\bin\java.exe"
 
-    if (-not (Test-Path $viewerExe)) {
-        Write-Err "viewer-win32.exe nu a fost gasit!"
-        Write-Host "    Ruleaza mai intai: setup.bat" -ForegroundColor Yellow
-        exit 1
-    }
     if (-not (Test-Path $launcherJar)) {
         Write-Err "weasis-launcher.jar nu a fost gasit!"
         Write-Host "    Ruleaza mai intai: setup.bat" -ForegroundColor Yellow
         exit 1
     }
-    if (-not (Test-Path $jrePath)) {
-        Write-Err "JRE nu este instalat in Weasis portable!"
+    $hasX86 = Test-Path $jreX86Path
+    $hasX64 = Test-Path $jreX64Path
+    if (-not $hasX86 -and -not $hasX64) {
+        Write-Err "Niciun JRE nu este instalat in Weasis portable!"
         Write-Host "    Ruleaza mai intai: setup.bat" -ForegroundColor Yellow
         exit 1
     }
-    Write-Ok "Weasis portable gasit cu JRE bundled"
+    $jreList = @()
+    if ($hasX86) { $jreList += "x86" }
+    if ($hasX64) { $jreList += "x64" }
+    Write-Ok "Weasis portable gasit cu JRE: $($jreList -join ' + ')"
 }
 
 function Clear-Staging {
@@ -205,7 +205,11 @@ function Copy-WeasisToStaging {
         }
     }
 
-    Write-Ok "Weasis portable copiat (cu JRE bundled)"
+    # Report which JREs are included
+    $jreInfo = @()
+    if (Test-Path (Join-Path $DiscStaging "jre\windows\bin\java.exe")) { $jreInfo += "x86" }
+    if (Test-Path (Join-Path $DiscStaging "jre\windows-x64\bin\java.exe")) { $jreInfo += "x64" }
+    Write-Ok "Weasis portable copiat (JRE: $($jreInfo -join ' + '))"
 }
 
 function Copy-TemplatesToStaging {

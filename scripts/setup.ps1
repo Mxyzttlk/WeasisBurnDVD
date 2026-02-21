@@ -114,17 +114,16 @@ if (-not (Test-Path $WeasisDir)) {
 }
 
 # ============================================================================
-# Step 2: Download JRE (Adoptium OpenJDK 8, 32-bit for max compatibility)
+# Step 2: Download JRE x86 (Adoptium OpenJDK 8, 32-bit for max compatibility)
 # ============================================================================
 
 $jreWindowsDir = Join-Path $WeasisDir "jre\windows"
 
 if (Test-Path (Join-Path $jreWindowsDir "bin\java.exe")) {
-    Write-Ok "JRE deja instalat in Weasis portable"
+    Write-Ok "JRE x86 (32-bit) deja instalat"
 } else {
-    Write-Status "Descarc JRE (Adoptium OpenJDK 8, x86)..."
+    Write-Status "Descarc JRE x86 (Adoptium OpenJDK 8, 32-bit)..."
 
-    # Adoptium/Temurin JRE 8 x86 Windows - this URL follows redirects properly
     $jreUrl = "https://api.adoptium.net/v3/binary/latest/8/ga/windows/x86/jre/hotspot/normal/eclipse"
     $jreZipPath = Join-Path $ToolsDir "jre8-x86.zip"
 
@@ -139,7 +138,6 @@ if (Test-Path (Join-Path $jreWindowsDir "bin\java.exe")) {
         Write-Host "    Salveaza fisierul .zip descarcat si apasa ENTER" -ForegroundColor White
         Read-Host
 
-        # Search for it
         $jreDownloaded = Get-ChildItem -Path (Join-Path $env:USERPROFILE "Downloads") -Filter "OpenJDK8U-jre*x86*windows*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($jreDownloaded) {
             Copy-Item -Path $jreDownloaded.FullName -Destination $jreZipPath -Force
@@ -155,40 +153,91 @@ if (Test-Path (Join-Path $jreWindowsDir "bin\java.exe")) {
         }
     }
 
-    Write-Ok "JRE descarcat: $('{0:N1}' -f ((Get-Item $jreZipPath).Length / 1MB)) MB"
+    Write-Ok "JRE x86 descarcat: $('{0:N1}' -f ((Get-Item $jreZipPath).Length / 1MB)) MB"
 
-    # Extract JRE
-    Write-Status "Extrag JRE..."
+    Write-Status "Extrag JRE x86..."
     $jreTempDir = Join-Path $ToolsDir "jre-temp"
     Expand-Archive -Path $jreZipPath -DestinationPath $jreTempDir -Force
 
-    # Find the JRE root (usually jdk8uXXX-jre or similar)
     $jreRoot = Get-ChildItem -Path $jreTempDir -Directory | Select-Object -First 1
-
-    # Create target directory and copy
     New-Item -ItemType Directory -Path $jreWindowsDir -Force | Out-Null
     Copy-Item -Path (Join-Path $jreRoot.FullName "*") -Destination $jreWindowsDir -Recurse -Force
 
-    # Clean up
     Remove-Item -Path $jreZipPath -Force
     Remove-Item -Path $jreTempDir -Recurse -Force
 
-    # Verify
     $javaExe = Join-Path $jreWindowsDir "bin\java.exe"
     if (Test-Path $javaExe) {
-        Write-Ok "JRE instalat cu succes"
-        # Java outputs version to stderr, so we capture it without triggering error
+        Write-Ok "JRE x86 instalat cu succes"
         $version = cmd /c "`"$javaExe`" -version 2>&1"
         Write-Host "    $($version[0])" -ForegroundColor Gray
     } else {
         Write-Host "    [ATENTIE] java.exe nu a fost gasit la calea asteptata." -ForegroundColor Yellow
-        Write-Host "    Structura JRE descarcata:" -ForegroundColor Yellow
-        Get-ChildItem -Path $jreWindowsDir -Depth 1 | ForEach-Object {
-            Write-Host "      $($_.FullName)" -ForegroundColor Gray
-        }
-        Write-Host ""
-        Write-Host "    Posibil trebuie mutat manual continutul." -ForegroundColor Yellow
         Write-Host "    Calea corecta: $jreWindowsDir\bin\java.exe" -ForegroundColor Yellow
+    }
+}
+
+# ============================================================================
+# Step 2b: Download JRE x64 (Adoptium OpenJDK 8, 64-bit for MPR 3D support)
+# ============================================================================
+
+$jreWindowsX64Dir = Join-Path $WeasisDir "jre\windows-x64"
+
+if (Test-Path (Join-Path $jreWindowsX64Dir "bin\java.exe")) {
+    Write-Ok "JRE x64 (64-bit) deja instalat"
+} else {
+    Write-Status "Descarc JRE x64 (Adoptium OpenJDK 8, 64-bit)..."
+
+    $jreX64Url = "https://api.adoptium.net/v3/binary/latest/8/ga/windows/x64/jre/hotspot/normal/eclipse"
+    $jreX64ZipPath = Join-Path $ToolsDir "jre8-x64.zip"
+
+    Write-Host "    Aceasta poate dura cateva minute..." -ForegroundColor Yellow
+
+    try {
+        Download-File -Url $jreX64Url -OutFile $jreX64ZipPath
+    } catch {
+        Write-Host "    Descarcare automata esuata. Deschid browserul..." -ForegroundColor Yellow
+        Start-Process $jreX64Url
+        Write-Host ""
+        Write-Host "    Salveaza fisierul .zip descarcat si apasa ENTER" -ForegroundColor White
+        Read-Host
+
+        $jreX64Downloaded = Get-ChildItem -Path (Join-Path $env:USERPROFILE "Downloads") -Filter "OpenJDK8U-jre*x64*windows*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($jreX64Downloaded) {
+            Copy-Item -Path $jreX64Downloaded.FullName -Destination $jreX64ZipPath -Force
+        } else {
+            $customPath = Read-Host "    Introdu calea catre fisierul JRE x64 .zip descarcat"
+            $customPath = $customPath.Trim('"', "'", ' ')
+            if (Test-Path $customPath) {
+                Copy-Item -Path $customPath -Destination $jreX64ZipPath -Force
+            } else {
+                Write-Host "    [EROARE] Fisierul nu exista." -ForegroundColor Red
+                exit 1
+            }
+        }
+    }
+
+    Write-Ok "JRE x64 descarcat: $('{0:N1}' -f ((Get-Item $jreX64ZipPath).Length / 1MB)) MB"
+
+    Write-Status "Extrag JRE x64..."
+    $jreTempDir = Join-Path $ToolsDir "jre-temp-x64"
+    Expand-Archive -Path $jreX64ZipPath -DestinationPath $jreTempDir -Force
+
+    $jreRoot = Get-ChildItem -Path $jreTempDir -Directory | Select-Object -First 1
+    New-Item -ItemType Directory -Path $jreWindowsX64Dir -Force | Out-Null
+    Copy-Item -Path (Join-Path $jreRoot.FullName "*") -Destination $jreWindowsX64Dir -Recurse -Force
+
+    Remove-Item -Path $jreX64ZipPath -Force
+    Remove-Item -Path $jreTempDir -Recurse -Force
+
+    $javaExe = Join-Path $jreWindowsX64Dir "bin\java.exe"
+    if (Test-Path $javaExe) {
+        Write-Ok "JRE x64 instalat cu succes"
+        $version = cmd /c "`"$javaExe`" -version 2>&1"
+        Write-Host "    $($version[0])" -ForegroundColor Gray
+    } else {
+        Write-Host "    [ATENTIE] java.exe x64 nu a fost gasit la calea asteptata." -ForegroundColor Yellow
+        Write-Host "    Calea corecta: $jreWindowsX64Dir\bin\java.exe" -ForegroundColor Yellow
     }
 }
 
@@ -204,7 +253,8 @@ $checks = @(
     @{ Path = (Join-Path $WeasisDir "felix.jar"); Name = "felix.jar (OSGI framework)" },
     @{ Path = (Join-Path $WeasisDir "conf\config.properties"); Name = "conf/config.properties" },
     @{ Path = (Join-Path $WeasisDir "bundle"); Name = "bundle/ folder" },
-    @{ Path = (Join-Path $jreWindowsDir "bin\java.exe"); Name = "jre/windows/bin/java.exe" },
+    @{ Path = (Join-Path $jreWindowsDir "bin\java.exe"); Name = "jre/windows/bin/java.exe (x86)" },
+    @{ Path = (Join-Path $jreWindowsX64Dir "bin\java.exe"); Name = "jre/windows-x64/bin/java.exe (x64)" },
     @{ Path = (Join-Path $ProjectRoot "templates\autorun.inf"); Name = "templates/autorun.inf" },
     @{ Path = (Join-Path $ProjectRoot "templates\README.html"); Name = "templates/README.html" },
     @{ Path = (Join-Path $ProjectRoot "burn.bat"); Name = "burn.bat" }

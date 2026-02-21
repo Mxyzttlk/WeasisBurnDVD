@@ -7,13 +7,15 @@ Replaces eFilm disc burning with open-source Weasis-based solution.
 ## Architecture
 - **burn.bat** - Entry point. User drags PACS ZIP onto it.
 - **scripts/burn.ps1** - Main logic: extract ZIP, organize DICOM, copy Weasis, burn DVD via IMAPI2
-- **scripts/setup.ps1** - One-time setup: downloads Weasis portable + JRE 8 x86
+- **scripts/setup.ps1** - One-time setup: downloads Weasis portable + JRE 8 x86 + JRE 8 x64
 - **templates/** - autorun.inf, start-weasis.bat, and README.html copied onto each disc
-- **tools/weasis-portable/** - Weasis 3.7.1 + Adoptium JRE 8 x86 (not in git, created by setup)
+- **tools/weasis-portable/** - Weasis 3.7.1 + Adoptium JRE 8 x86 + x64 (not in git, created by setup)
 
 ## Key Technical Decisions
 - **Weasis 3.7.1 portable** (not 4.x) because 4.x has no portable version and is slow from DVD
-- **JRE 8 x86 (32-bit)** from Adoptium for maximum compatibility (runs on 32 and 64-bit Windows)
+- **Dual JRE** (x86 + x64) from Adoptium bundled on disc. `start-weasis.bat` auto-detects OS architecture:
+  - **x64 (64-bit)**: `-Xmx2048m` - supports MPR 3D reconstruction on large datasets
+  - **x86 (32-bit)**: `-Xmx768m` - compatibility fallback for older PCs (no MPR 3D on large studies)
 - **viewer-win32.exe** (Launch4j wrapper) extracted from PACS ZIP, not from SourceForge
 - **SourceForge ZIP** only contains Java bundles (no launcher exe)
 - **IMAPI2 COM** for burning - native Windows API, no external tools needed
@@ -29,6 +31,11 @@ Instead, `start-weasis.bat` launches Weasis directly via Java:
 ```
 javaw.exe -Xms64m -Xmx768m -Dweasis.portable.dir="%~dp0." -Dgosh.args="-sc telnetd -p 17179 start" -cp "weasis-launcher.jar;felix.jar;substance.jar" org.weasis.launcher.WeasisLauncher $dicom:get --portable
 ```
+
+The script auto-detects architecture and selects JRE:
+- **64-bit OS**: uses `jre/windows-x64/` with `-Xmx2048m` (MPR 3D works)
+- **32-bit OS**: uses `jre/windows/` with `-Xmx768m` (basic viewing only)
+- Shows loading message before launch (console window stays 5 seconds)
 
 Key launch requirements:
 - **`-Dweasis.portable.dir`** - MUST be set, otherwise `--portable` flag is ignored and DICOM auto-scan doesn't work
@@ -94,7 +101,8 @@ DVD-R/
 ├── bundle-i18n/
 ├── conf/
 ├── resources/
-├── jre/windows/          ← JRE 8 x86
+├── jre/windows/          ← JRE 8 x86 (32-bit fallback)
+├── jre/windows-x64/      ← JRE 8 x64 (64-bit, MPR 3D support)
 ├── viewer-linux.sh
 ├── viewer-win32.l4j.ini
 └── weasis-viewer.bat
@@ -116,14 +124,24 @@ Note: NO DICOMDIR on disc (paths incompatible with flat layout).
 - start-weasis.bat: launches Weasis with automatic DICOM loading (absolute paths, cache cleanup)
 - Tested successfully: patient PANCELEA, EVGHENIA (CT Head, 160 DICOM files, 5 series)
 - Multiple optical drive selection
+- Disc works standalone (start-weasis.bat from DVD launches correctly)
+- First launch ~5 min (reading from optical), second launch ~3 min (bundles cached)
+- Scrolling smooth after second launch
+
+### KNOWN LIMITATIONS (32-bit JRE):
+- MPR 3D on 625 images (1.5mm CT) fails with `-Xmx768m` (insufficient memory for OpenCV)
+- Increasing to `-Xmx1280m` on 32-bit makes scrolling and everything worse (not enough native memory)
+- **Solution implemented**: dual JRE (x86 + x64) with architecture auto-detection
 
 ### PENDING TEST:
-- User to run `E:\Weasis Burn\scripts\clean-and-launch.bat` after eject/reinsert of latest disc
-- If `start-weasis.bat` from disc still doesn't launch standalone: investigate if `javaw.exe` has issues on optical media and consider switching to `java.exe` (shows console window but more reliable)
+- Burn disc with dual JRE (x86 + x64) and test MPR 3D with 64-bit JRE (-Xmx2048m)
+- Run setup.ps1 to download JRE x64
 
 ### NEXT STEPS:
-- Verify disc works standalone (without helper script)
-- Consider removing viewer-win32.exe and weasis-viewer.bat from disc (they don't work, only cause confusion)
+- Run setup.ps1 to download JRE x64 (Adoptium OpenJDK 8 x64)
+- Burn test disc with dual JRE
+- Test MPR 3D on 64-bit with 2048m heap
+- Consider removing viewer-win32.exe and weasis-viewer.bat from disc
 - Create .gitignore (tools/ folder excluded)
 - Test on another computer (clean environment, no .weasis cache)
 
