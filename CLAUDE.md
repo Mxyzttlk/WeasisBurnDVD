@@ -342,8 +342,81 @@ powershell -sta -nologo -noprofile -ExecutionPolicy Bypass -File "%~dp0splash-lo
 - Test with large DICOM dataset (>700 MB) — IMAPI2 fix
 - Test MPR 3D with 64-bit JRE (-Xmx2048m)
 
+### SESSION 2026-02-22 (viewer-win32.exe launcher replacement):
+
+#### Problem: Users click viewer-win32.exe instead of start-weasis.bat
+On the DVD, users instinctively click the `.exe` file (has an icon, looks like an app) instead of `start-weasis.bat`. But the original `viewer-win32.exe` (Launch4j wrapper) doesn't work in our flat disc layout — it has hardcoded paths from the PACS structure.
+
+#### Solution: Replace viewer-win32.exe with custom C# launcher
+Created a tiny C# program that launches `start-weasis.bat` when clicked. Compiled with the Weasis icon so it looks identical to the original.
+
+**New files:**
+- **`templates/launcher.cs`** — C# source (30 lines), uses P/Invoke MessageBox for errors:
+  ```csharp
+  // Finds start-weasis.bat in same directory as exe, launches it
+  // Shows error MessageBox if bat not found
+  // Compiled as /target:winexe (no console window)
+  ```
+- **`templates/weasis.ico`** — Icon extracted from original viewer-win32.exe (766 bytes)
+
+**Modified files:**
+- **`scripts/burn.ps1`** — Added `Build-LauncherExe` function (Step 7):
+  - Uses `csc.exe` from .NET Framework (built-in on all Windows)
+  - Compiles `launcher.cs` + `weasis.ico` → `viewer-win32.exe` in staging
+  - Overwrites the original 54 KB Launch4j exe with our 5.5 KB launcher
+  - **Fail-safe**: If csc.exe missing or compilation fails, keeps original exe on disc
+  - Steps renumbered: was 7 steps, now 10 steps (7=Build, 8=Summary, 9=Burn, 10=Cleanup)
+
+**How it works on disc:**
+1. User opens DVD, sees `viewer-win32.exe` with Weasis icon → clicks it
+2. Our launcher starts `start-weasis.bat` (no console window from the exe itself)
+3. `start-weasis.bat` detects architecture, launches WPF splash screen
+4. Splash copies Weasis to HDD, launches Weasis
+
+**Compilation details:**
+- Compiler: `C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe` (always present)
+- Flags: `/target:winexe /win32icon:weasis.ico /nologo`
+- Output size: 5.5 KB (vs 54 KB original)
+- Icon extracted via: `[System.Drawing.Icon]::ExtractAssociatedIcon()`
+
+**Original viewer-win32.exe in tools/weasis-portable/ is NOT modified** — only the staging copy is replaced during burn.
+
+#### Licensing analysis (all components on DVD):
+
+| Component | License | Source disclosure? | Key obligation |
+|---|---|---|---|
+| Weasis 3.7.1 | EPL-2.0 OR Apache-2.0 (choose Apache) | No (under Apache) | Include license text, retain notices |
+| Adoptium JRE 8 | GPLv2 + Classpath Exception | Point to source repo | Keep LICENSE/NOTICE files (already in jre/) |
+| Apache Felix | Apache 2.0 | No | Include license text |
+| Substance | BSD | No | Attribution |
+| Launch4j wrapper | MIT + BSD-3 | No | Attribution |
+| OpenCV | Apache 2.0 | No | Include license text |
+| Our launcher.cs | Own code, no license needed | N/A | N/A |
+
+**JRE compliance**: `LICENSE`, `ASSEMBLY_EXCEPTION`, `NOTICE`, `THIRD_PARTY_README` already exist in `jre/windows/` and `jre/windows-x64/` — copied to disc automatically by `Copy-WeasisToStaging`.
+
+**Recommended**: Add license attributions to `README.html` + JRE source pointer (`https://github.com/adoptium/jdk8u`).
+
+### PENDING TEST:
+- Test WPF splash screen from burned disc
+- Test viewer-win32.exe launcher from burned disc (does clicking exe launch start-weasis.bat?)
+- Verify logo loads from disc `resources/images/logo-button.png`
+- Verify animated loading dots
+- Verify progress bar advances through [1/6]-[6/6]
+- Verify color-coded log messages
+- Verify window auto-closes when Weasis opens
+- Verify 32-bit warning appears on x86 systems
+- Verify language detection (test with RO/RU/EN system locale)
+- Verify DVD fallback with GUI when copy fails
+- Verify CMD fallback when PowerShell unavailable
+- Verify Weasis icon on DVD in Explorer
+- Verify "Weasis DICOM" label on disc
+- Test with large DICOM dataset (>700 MB) — IMAPI2 fix
+- Test MPR 3D with 64-bit JRE (-Xmx2048m)
+- Add license attributions to README.html
+
 ### NEXT STEPS:
-- viewer-win32.exe KEEP on disc (used for `autorun.inf icon=viewer-win32.exe,0`)
+- Add license/attribution section to README.html
 - Create .gitignore (tools/ folder excluded)
 - Test on another computer (clean environment, no .weasis cache)
 

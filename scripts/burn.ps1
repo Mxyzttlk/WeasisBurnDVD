@@ -18,6 +18,7 @@ $ProjectRoot    = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand
 $WeasisDir      = Join-Path $ProjectRoot "tools\weasis-portable"
 $TempRoot       = Join-Path $env:TEMP "WeasisBurn"
 $DiscStaging    = Join-Path $TempRoot "disc"
+$ContentDir     = Join-Path $DiscStaging "Weasis"     # subfolder on disc for all content
 $TemplatesDir   = Join-Path $ProjectRoot "templates"
 $BurnSpeed      = 4  # slower = more compatible and reliable
 
@@ -63,7 +64,8 @@ function Clear-Staging {
         Remove-Item -Recurse -Force $DiscStaging
     }
     New-Item -ItemType Directory -Path $DiscStaging -Force | Out-Null
-    Write-Ok "Folder staging creat: $DiscStaging"
+    New-Item -ItemType Directory -Path $ContentDir -Force | Out-Null
+    Write-Ok "Folder staging creat: $DiscStaging (content in Weasis/)"
 }
 
 function Expand-PatientZip {
@@ -154,15 +156,15 @@ function Copy-DicomToStaging {
         $checkPath = Split-Path -Parent $checkPath
     }
 
-    # Step 3: Copy DICOM files to staging
+    # Step 3: Copy DICOM files to Weasis/ subfolder on disc
     if ($dicomSourceRoot) {
-        # Found a DICOM folder - copy it as-is to staging
-        $destDicom = Join-Path $DiscStaging (Split-Path -Leaf $dicomSourceRoot)
+        # Found a DICOM folder - copy it as-is to content dir
+        $destDicom = Join-Path $ContentDir (Split-Path -Leaf $dicomSourceRoot)
         Copy-Item -Path $dicomSourceRoot -Destination $destDicom -Recurse -Force
         Write-Ok "Copiat folderul $(Split-Path -Leaf $dicomSourceRoot)/ ($($allDcmFiles.Count) fisiere)"
     } else {
         # No DICOM parent folder - create one and copy files preserving structure
-        $dicomDir = Join-Path $DiscStaging "DICOM"
+        $dicomDir = Join-Path $ContentDir "DICOM"
         New-Item -ItemType Directory -Path $dicomDir -Force | Out-Null
         foreach ($f in $allDcmFiles) {
             $relPath = $f.FullName.Substring($ExtractedDir.Length).TrimStart('\', '/')
@@ -182,7 +184,7 @@ function Copy-DicomToStaging {
     Write-Ok "DICOMDIR din ZIP omis (cai incompatibile). Weasis va scana DICOM/ direct."
 
     # Count final files
-    $finalDcm = (Get-ChildItem -Path $DiscStaging -Recurse -File |
+    $finalDcm = (Get-ChildItem -Path $ContentDir -Recurse -File |
         Where-Object { $_.Extension -match "^\.(dcm|DCM)$" }).Count
     Write-Ok "Fisiere DICOM pe disc: $finalDcm"
 }
@@ -190,14 +192,14 @@ function Copy-DicomToStaging {
 function Copy-WeasisToStaging {
     Write-Status "Copiez Weasis portable pe disc..."
 
-    # Folders/files to exclude from DVD (not needed for Windows target)
-    $excludeNames = @("viewer-mac.app", "autorun.inf")
+    # Folders/files to exclude from DVD (not needed for Windows target / replaced by our templates)
+    $excludeNames = @("viewer-mac.app", "autorun.inf", "viewer-win32.exe")
 
-    # Copy weasis-portable contents to staging, excluding macOS app bundle
+    # Copy weasis-portable contents to Weasis/ subfolder, excluding macOS app bundle
     $items = Get-ChildItem -Path $WeasisDir
     foreach ($item in $items) {
         if ($excludeNames -contains $item.Name) { continue }
-        $destPath = Join-Path $DiscStaging $item.Name
+        $destPath = Join-Path $ContentDir $item.Name
         if ($item.PSIsContainer) {
             Copy-Item -Path $item.FullName -Destination $destPath -Recurse -Force
         } else {
@@ -207,20 +209,70 @@ function Copy-WeasisToStaging {
 
     # Report which JREs are included
     $jreInfo = @()
-    if (Test-Path (Join-Path $DiscStaging "jre\windows\bin\java.exe")) { $jreInfo += "x86" }
-    if (Test-Path (Join-Path $DiscStaging "jre\windows-x64\bin\java.exe")) { $jreInfo += "x64" }
+    if (Test-Path (Join-Path $ContentDir "jre\windows\bin\java.exe")) { $jreInfo += "x86" }
+    if (Test-Path (Join-Path $ContentDir "jre\windows-x64\bin\java.exe")) { $jreInfo += "x64" }
     Write-Ok "Weasis portable copiat (JRE: $($jreInfo -join ' + '))"
 }
 
 function Copy-TemplatesToStaging {
-    Write-Status "Copiez autorun.inf, start-weasis.bat, splash-loader.ps1 si README..."
+    Write-Status "Copiez templates..."
 
+    # autorun.inf goes to disc root (Windows reads it from root only)
     Copy-Item -Path (Join-Path $TemplatesDir "autorun.inf") -Destination $DiscStaging -Force
-    Copy-Item -Path (Join-Path $TemplatesDir "start-weasis.bat") -Destination $DiscStaging -Force
-    Copy-Item -Path (Join-Path $TemplatesDir "splash-loader.ps1") -Destination $DiscStaging -Force
-    Copy-Item -Path (Join-Path $TemplatesDir "README.html") -Destination $DiscStaging -Force
 
-    Write-Ok "autorun.inf, splash-loader.ps1 si README.html copiate"
+    # Everything else goes into Weasis/ subfolder
+    Copy-Item -Path (Join-Path $TemplatesDir "start-weasis.bat") -Destination $ContentDir -Force
+    Copy-Item -Path (Join-Path $TemplatesDir "splash-loader.ps1") -Destination $ContentDir -Force
+    Copy-Item -Path (Join-Path $TemplatesDir "README.html") -Destination $ContentDir -Force
+
+    Write-Ok "autorun.inf (root), start-weasis.bat + splash-loader.ps1 + README.html (Weasis/)"
+}
+
+function Build-LauncherWrapper {
+    Write-Status "Creez launcher pe disc..."
+
+    # Copy weasis.ico into Weasis/ subfolder (used by autorun.inf for disc icon)
+    $iconSrc = Join-Path $TemplatesDir "weasis.ico"
+    if (Test-Path $iconSrc) {
+        Copy-Item $iconSrc -Destination $ContentDir -Force
+        Write-Ok "weasis.ico copiat in Weasis/"
+    }
+
+    # Copy .bat wrapper to disc root (backup/fallback launcher)
+    $wrapperSrc = Join-Path $TemplatesDir "Weasis Viewer.bat"
+    if (Test-Path $wrapperSrc) {
+        Copy-Item $wrapperSrc -Destination $DiscStaging -Force
+        Write-Ok "'Weasis Viewer.bat' copiat la root (backup)"
+    }
+
+    # Create shortcut (.lnk) at disc root
+    # Target: cmd.exe (fixed system path, always exists on any Windows)
+    # Arguments: relative path to start-weasis.bat (resolved from DVD root)
+    # NOTE: IconLocation intentionally NOT set. Windows .lnk requires absolute path
+    # to an existing file on the local HDD for icon resolution. On DVD with unknown
+    # drive letter, no absolute path works. Tested: relative paths, ExtraData patching,
+    # ExtraData removal — none work on optical/mounted media. Disc icon is set via
+    # autorun.inf (icon=Weasis\weasis.ico) which DOES work.
+    $lnkPath = Join-Path $DiscStaging "Weasis Viewer.lnk"
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($lnkPath)
+        $shortcut.TargetPath = "$env:SystemRoot\System32\cmd.exe"
+        $shortcut.Arguments = '/c "Weasis\start-weasis.bat"'
+        $shortcut.WorkingDirectory = ""
+        $shortcut.WindowStyle = 7  # Minimized (hide cmd flash)
+        $shortcut.Description = "Weasis DICOM Viewer"
+        $shortcut.Save()
+
+        if (Test-Path $lnkPath) {
+            Write-Ok "'Weasis Viewer.lnk' creat (cmd.exe -> Weasis\start-weasis.bat)"
+        } else {
+            Write-Err "Nu s-a putut crea shortcut-ul"
+        }
+    } catch {
+        Write-Err "Eroare la crearea shortcut-ului: $($_.Exception.Message)"
+        Write-Host "    'Weasis Viewer.bat' este disponibil ca alternativa." -ForegroundColor Yellow
+    }
 }
 
 function Show-DiscSummary {
@@ -423,10 +475,13 @@ Copy-WeasisToStaging
 # Step 6: Copy templates (autorun, readme)
 Copy-TemplatesToStaging
 
-# Step 7: Show summary
+# Step 7: Copy launcher wrapper bat + icon
+Build-LauncherWrapper
+
+# Step 8: Show summary
 Show-DiscSummary
 
-# Step 8: Confirm and burn
+# Step 9: Confirm and burn
 Write-Host ""
 $confirm = Read-Host "Vrei sa arzi pe DVD-R acum? (da/nu)"
 if ($confirm -eq "da" -or $confirm -eq "d" -or $confirm -eq "y" -or $confirm -eq "yes") {
@@ -437,7 +492,7 @@ if ($confirm -eq "da" -or $confirm -eq "d" -or $confirm -eq "y" -or $confirm -eq
     Write-Host "    Poti arde manual mai tarziu." -ForegroundColor Yellow
 }
 
-# Step 9: Cleanup
+# Step 10: Cleanup
 Cleanup
 
 Write-Host ""

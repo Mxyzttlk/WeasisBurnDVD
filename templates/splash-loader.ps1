@@ -165,7 +165,49 @@ $xaml = @"
         ShowInTaskbar="True">
 
     <Border CornerRadius="12" Background="#1E1E1E" BorderBrush="#333333" BorderThickness="1">
-        <Grid Margin="24">
+        <Grid>
+            <!-- WINDOW CONTROL BUTTONS (top-right) -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="0,8,8,0" Panel.ZIndex="10">
+                <Button x:Name="btnMinimize" Content="&#x2014;" Width="32" Height="24" Margin="0,0,4,0"
+                        FontSize="13" Cursor="Hand" Foreground="#888888" Background="Transparent" BorderThickness="0"
+                        ToolTip="Minimize">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="border" Background="{TemplateBinding Background}"
+                                    CornerRadius="4" Padding="0">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="border" Property="Background" Value="#333333"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button x:Name="btnCloseWin" Content="&#x2715;" Width="32" Height="24"
+                        FontSize="13" Cursor="Hand" Foreground="#888888" Background="Transparent" BorderThickness="0"
+                        ToolTip="Close">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="border" Background="{TemplateBinding Background}"
+                                    CornerRadius="4" Padding="0">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="border" Property="Background" Value="#D32F2F"/>
+                                    <Setter Property="Foreground" Value="White"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
+
+            <!-- CONTENT AREA -->
+            <Grid Margin="24">
 
             <!-- WARNING PANEL (32-bit) -->
             <StackPanel x:Name="panelWarning" Visibility="Collapsed" VerticalAlignment="Center">
@@ -256,6 +298,7 @@ $xaml = @"
                            FontSize="10" Foreground="#555555" HorizontalAlignment="Right"/>
             </Grid>
 
+            </Grid>
         </Grid>
     </Border>
 </Window>
@@ -287,6 +330,8 @@ $txtWarn32Title = $window.FindName("txtWarn32Title")
 $txtWarn32Msg  = $window.FindName("txtWarn32Msg")
 $btnContinue   = $window.FindName("btnContinue")
 $btnClose      = $window.FindName("btnClose")
+$btnMinimize   = $window.FindName("btnMinimize")
+$btnCloseWin   = $window.FindName("btnCloseWin")
 
 # Set localized text
 $txtWait.Text = $strings.WaitMessage
@@ -642,6 +687,15 @@ $btnContinue.Add_Click({
 })
 
 $btnClose.Add_Click({
+    $window.Close()
+})
+
+# --- Window control buttons (top-right) ---
+$btnMinimize.Add_Click({
+    $window.WindowState = [System.Windows.WindowState]::Minimized
+})
+
+$btnCloseWin.Add_Click({
     $window.Close()
 })
 
