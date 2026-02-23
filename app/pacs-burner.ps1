@@ -850,7 +850,57 @@ function Start-BurnProcess {
         $psCmd += " -DriveID `"$bDrive`""
     }
     # cmd /k keeps window open after burn completes or errors
-    Start-Process cmd -ArgumentList "/k", "chcp 65001 >nul & title DICOM DVD Burn & $psCmd & echo. & pause & exit"
+    $script:burnProc = Start-Process cmd -ArgumentList "/k", "chcp 65001 >nul & title DICOM DVD Burn & $psCmd & echo. & pause & exit" -PassThru
+
+    # Monitor burn process — when CMD window closes, do post-burn cleanup
+    $script:burnMonitorTimer = [System.Windows.Threading.DispatcherTimer]::new()
+    $script:burnMonitorTimer.Interval = [TimeSpan]::FromSeconds(2)
+    $script:burnMonitorTimer.Add_Tick({
+        if ($script:burnProc.HasExited) {
+            $this.Stop()
+            $script:burnProc = $null
+            $script:currentZipPath = $null
+
+            # Reset status bar
+            Update-Status "Conectat" "#0F9B58"
+            $window.Dispatcher.Invoke([Action]{
+                $txtZipInfo.Text = ""
+            })
+
+            # Click "Curatare" in download modal, then close modal (with delay for WebView focus)
+            if ($script:webViewReady) {
+                $script:postBurnTimer = [System.Windows.Threading.DispatcherTimer]::new()
+                $script:postBurnTimer.Interval = [TimeSpan]::FromSeconds(1)
+                $script:postBurnTimer.Add_Tick({
+                    $this.Stop()
+                    # Click "Curatare" in download modal, then close modal
+                    $cleanupJs = @"
+(function() {
+    var modal = document.querySelector('.modal');
+    var scope = modal || document;
+    var elems = scope.querySelectorAll('button, a.btn, input[type=button]');
+    for (var i = 0; i < elems.length; i++) {
+        var txt = (elems[i].textContent || elems[i].value || '').trim();
+        if (txt.indexOf('Cura') >= 0 || txt.indexOf('cura') >= 0 || txt.indexOf('tire') >= 0 || txt.indexOf('Clean') >= 0) {
+            elems[i].click();
+            break;
+        }
+    }
+    setTimeout(function() {
+        var closeBtns = document.querySelectorAll('.modal .close, .modal button.close, .modal-header .close, [data-dismiss=modal]');
+        for (var j = 0; j < closeBtns.length; j++) {
+            closeBtns[j].click();
+        }
+    }, 800);
+})();
+"@
+                    $script:webView.CoreWebView2.ExecuteScriptAsync($cleanupJs) | Out-Null
+                })
+                $script:postBurnTimer.Start()
+            }
+        }
+    })
+    $script:burnMonitorTimer.Start()
 }
 
 # ============================================================================
