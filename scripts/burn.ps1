@@ -845,10 +845,76 @@ if ($SimulateOnly) {
     Write-Host "      - Templates copiate" -ForegroundColor Green
     Write-Host "      - DICOMDIR generat" -ForegroundColor Green
     Write-Host ""
+
+    # Simulate burn with progress bar based on real data size and burn speed
+    $totalSize = (Get-ChildItem -Path $DiscStaging -Recurse -File | Measure-Object -Property Length -Sum).Sum
+    $totalSizeMB = [math]::Round($totalSize / 1MB, 1)
+    $speedKBs = $BurnSpeed * 1385  # 1x DVD = 1385 KB/s
+    $totalSizeKB = $totalSize / 1024
+    $estimatedSec = [math]::Max([math]::Ceiling($totalSizeKB / $speedKBs), 3)
+    $barWidth = 40
+
+    Write-Host "    Simulare ardere: $totalSizeMB MB la ${BurnSpeed}x ($speedKBs KB/s)" -ForegroundColor Yellow
+    Write-Host "    Timp estimat: ~$estimatedSec secunde" -ForegroundColor Gray
+    Write-Host ""
+
+    # Phases: lead-in (5%), writing (85%), lead-out (10%)
+    $phases = @(
+        @{ Name = "Lead-in";  Start = 0;    End = 0.05; Color = "DarkYellow" }
+        @{ Name = "Scriere";  Start = 0.05; End = 0.90; Color = "Yellow" }
+        @{ Name = "Lead-out"; Start = 0.90; End = 1.00; Color = "DarkYellow" }
+    )
+
+    $steps = $estimatedSec * 4  # update 4 times per second
+    $sleepMs = [math]::Round(($estimatedSec * 1000) / $steps)
+    $startTime = [DateTime]::Now
+
+    for ($i = 1; $i -le $steps; $i++) {
+        $pct = [math]::Min($i / $steps, 1.0)
+        $pctInt = [math]::Round($pct * 100)
+        $filled = [math]::Round($pct * $barWidth)
+        $empty = $barWidth - $filled
+        $bar = ([string][char]9608) * $filled + ([string][char]9617) * $empty
+
+        # Determine current phase name
+        $phaseName = "Scriere"
+        $phaseColor = "Yellow"
+        foreach ($ph in $phases) {
+            if ($pct -ge $ph.Start -and $pct -lt $ph.End) {
+                $phaseName = $ph.Name
+                $phaseColor = $ph.Color
+                break
+            }
+        }
+        if ($pct -ge 1.0) { $phaseName = "Lead-out"; $phaseColor = "DarkYellow" }
+
+        # Simulated written size
+        $writtenMB = [math]::Round($totalSizeMB * $pct, 1)
+
+        # Elapsed time
+        $elapsed = ([DateTime]::Now - $startTime).TotalSeconds
+        $elapsedStr = "{0:mm\:ss}" -f [TimeSpan]::FromSeconds($elapsed)
+        $remainSec = [math]::Max($estimatedSec - $elapsed, 0)
+        $remainStr = "{0:mm\:ss}" -f [TimeSpan]::FromSeconds($remainSec)
+
+        # Write on same line
+        $line = "    $bar  $pctInt%  $writtenMB/$totalSizeMB MB  [$phaseName]  $elapsedStr / ~$remainStr"
+        Write-Host "`r$line" -NoNewline -ForegroundColor $phaseColor
+
+        Start-Sleep -Milliseconds $sleepMs
+    }
+
+    # Final 100%
+    $bar = ([string][char]9608) * $barWidth
+    $elapsed = ([DateTime]::Now - $startTime).TotalSeconds
+    $elapsedStr = "{0:mm\:ss}" -f [TimeSpan]::FromSeconds($elapsed)
+    Write-Host "`r    $bar  100%  $totalSizeMB/$totalSizeMB MB  [Finalizat]  $elapsedStr          " -ForegroundColor Green
+    Write-Host ""
+    Write-Host ""
+    Write-Ok "SIMULARE BURN FINALIZATA CU SUCCES!"
+    Write-Host ""
     Write-Host "    Fisierele pregatite sunt in:" -ForegroundColor White
     Write-Host "      $DiscStaging" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "    Poti verifica structura discului in folderul de mai sus." -ForegroundColor White
     Write-Host ""
     $script:burnSuccess = $true  # simulate success for cleanup (ZIP delete)
 } elseif ($AutoConfirm) {
