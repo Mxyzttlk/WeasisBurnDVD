@@ -76,6 +76,10 @@ function Get-Strings {
                 BtnClose      = "Inchide"
                 OsWarnTitle   = "Sistemul de operare nu indeplineste cerintele"
                 OsWarnMsg     = "Weasis necesita Windows 10 sau mai nou. Recomandam sa folositi aplicatia RadiAnt pentru vizualizarea imaginilor DICOM."
+                RamBlockTitle = "Memorie RAM insuficienta"
+                RamBlockMsg   = "Calculatorul are doar {0} GB RAM. Weasis necesita minim 2 GB. Recomandam sa folositi aplicatia RadiAnt."
+                RamWarnTitle  = "Memorie RAM redusa"
+                RamWarnMsg    = "Calculatorul are doar {0} GB RAM. Weasis poate functiona lent. Recomandam minim 4 GB RAM sau aplicatia RadiAnt."
             }
         }
         "ru" {
@@ -111,6 +115,10 @@ function Get-Strings {
                 BtnClose      = "Закрыть"
                 OsWarnTitle   = "Операционная система не соответствует требованиям"
                 OsWarnMsg     = "Weasis требует Windows 10 или новее. Рекомендуем использовать приложение RadiAnt для просмотра изображений DICOM."
+                RamBlockTitle = "Недостаточно оперативной памяти"
+                RamBlockMsg   = "На компьютере только {0} ГБ RAM. Weasis требует минимум 2 ГБ. Рекомендуем использовать приложение RadiAnt."
+                RamWarnTitle  = "Мало оперативной памяти"
+                RamWarnMsg    = "На компьютере только {0} ГБ RAM. Weasis может работать медленно. Рекомендуем минимум 4 ГБ RAM или приложение RadiAnt."
             }
         }
         default {
@@ -146,6 +154,10 @@ function Get-Strings {
                 BtnClose      = "Close"
                 OsWarnTitle   = "Operating system does not meet requirements"
                 OsWarnMsg     = "Weasis requires Windows 10 or newer. We recommend using RadiAnt for viewing DICOM images."
+                RamBlockTitle = "Insufficient RAM"
+                RamBlockMsg   = "This computer has only {0} GB RAM. Weasis requires at least 2 GB. We recommend using RadiAnt."
+                RamWarnTitle  = "Low RAM"
+                RamWarnMsg    = "This computer has only {0} GB RAM. Weasis may run slowly. We recommend at least 4 GB RAM or using RadiAnt."
             }
         }
     }
@@ -157,6 +169,12 @@ $is32bit = ($ArchLabel -eq "32-bit")
 # Detect OS version: Windows 10 = 10.0, Windows 8.1 = 6.3, Windows 7 = 6.1
 $osVersion = [System.Environment]::OSVersion.Version
 $isOldOS = ($osVersion.Major -lt 10)
+
+# Detect total RAM in GB
+$ramBytes = (Get-CimInstance -ClassName Win32_ComputerSystem -Property TotalPhysicalMemory).TotalPhysicalMemory
+$ramGB = [math]::Round($ramBytes / 1GB, 1)
+$isRamBlock = ($ramGB -lt 2)       # < 2 GB: block completely
+$isRamWarn  = ($ramGB -ge 2 -and $ramGB -lt 4)  # 2-3 GB: warning with continue
 
 # ============================================================================
 # WPF XAML LAYOUT
@@ -247,6 +265,50 @@ $xaml = @"
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
+            </StackPanel>
+
+            <!-- RAM WARNING PANEL (< 2 GB block, 2-3 GB warning) -->
+            <StackPanel x:Name="panelRamWarning" Visibility="Collapsed" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,24">
+                    <Image x:Name="imgLogoRam" Width="40" Height="40" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Weasis v3.7.1" FontSize="26" FontWeight="SemiBold" Foreground="#0F9B58" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <TextBlock Text="&#x26A0;" FontSize="40" Foreground="#FF6B35" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+
+                <TextBlock x:Name="txtRamWarnTitle" Text="" FontSize="15" FontWeight="SemiBold"
+                           Foreground="#FF6B35" HorizontalAlignment="Center" TextAlignment="Center"
+                           Margin="20,0,20,10" TextWrapping="Wrap"/>
+                <TextBlock x:Name="txtRamWarnMsg" Text="" FontSize="13"
+                           Foreground="#CCCCCC" HorizontalAlignment="Center" TextAlignment="Center"
+                           Margin="20,0,20,28" TextWrapping="Wrap"/>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Button x:Name="btnRamContinue" Content="Continue" Width="120" Height="36" Margin="0,0,16,0"
+                            FontSize="14" FontWeight="SemiBold" Cursor="Hand"
+                            Foreground="White" Background="#0F9B58" BorderThickness="0">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="border" Background="{TemplateBinding Background}"
+                                        CornerRadius="6" Padding="12,6">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <Button x:Name="btnRamClose" Content="Close" Width="120" Height="36"
+                            FontSize="14" FontWeight="SemiBold" Cursor="Hand"
+                            Foreground="White" Background="#D32F2F" BorderThickness="0">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="border" Background="{TemplateBinding Background}"
+                                        CornerRadius="6" Padding="12,6">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </StackPanel>
             </StackPanel>
 
             <!-- WARNING PANEL (32-bit) -->
@@ -356,27 +418,33 @@ try {
 }
 
 # Get controls
-$panelOsWarning = $window.FindName("panelOsWarning")
-$panelWarning  = $window.FindName("panelWarning")
-$panelLoading  = $window.FindName("panelLoading")
-$imgLogo       = $window.FindName("imgLogo")
-$imgLogoWarn   = $window.FindName("imgLogoWarn")
-$imgLogoOs     = $window.FindName("imgLogoOs")
-$txtLoading    = $window.FindName("txtLoading")
-$txtWait       = $window.FindName("txtWait")
-$progressBar   = $window.FindName("progressBar")
-$txtLog        = $window.FindName("txtLog")
-$scrollLog     = $window.FindName("scrollLog")
-$txtArch       = $window.FindName("txtArch")
-$txtWarn32Title = $window.FindName("txtWarn32Title")
-$txtWarn32Msg  = $window.FindName("txtWarn32Msg")
-$txtOsWarnTitle = $window.FindName("txtOsWarnTitle")
-$txtOsWarnMsg  = $window.FindName("txtOsWarnMsg")
-$btnContinue   = $window.FindName("btnContinue")
-$btnClose      = $window.FindName("btnClose")
-$btnOsClose    = $window.FindName("btnOsClose")
-$btnMinimize   = $window.FindName("btnMinimize")
-$btnCloseWin   = $window.FindName("btnCloseWin")
+$panelOsWarning  = $window.FindName("panelOsWarning")
+$panelRamWarning = $window.FindName("panelRamWarning")
+$panelWarning    = $window.FindName("panelWarning")
+$panelLoading    = $window.FindName("panelLoading")
+$imgLogo         = $window.FindName("imgLogo")
+$imgLogoWarn     = $window.FindName("imgLogoWarn")
+$imgLogoOs       = $window.FindName("imgLogoOs")
+$imgLogoRam      = $window.FindName("imgLogoRam")
+$txtLoading      = $window.FindName("txtLoading")
+$txtWait         = $window.FindName("txtWait")
+$progressBar     = $window.FindName("progressBar")
+$txtLog          = $window.FindName("txtLog")
+$scrollLog       = $window.FindName("scrollLog")
+$txtArch         = $window.FindName("txtArch")
+$txtWarn32Title  = $window.FindName("txtWarn32Title")
+$txtWarn32Msg    = $window.FindName("txtWarn32Msg")
+$txtOsWarnTitle  = $window.FindName("txtOsWarnTitle")
+$txtOsWarnMsg    = $window.FindName("txtOsWarnMsg")
+$txtRamWarnTitle = $window.FindName("txtRamWarnTitle")
+$txtRamWarnMsg   = $window.FindName("txtRamWarnMsg")
+$btnContinue     = $window.FindName("btnContinue")
+$btnClose        = $window.FindName("btnClose")
+$btnOsClose      = $window.FindName("btnOsClose")
+$btnRamContinue  = $window.FindName("btnRamContinue")
+$btnRamClose     = $window.FindName("btnRamClose")
+$btnMinimize     = $window.FindName("btnMinimize")
+$btnCloseWin     = $window.FindName("btnCloseWin")
 
 # Set localized text
 $txtWait.Text = $strings.WaitMessage
@@ -388,6 +456,18 @@ $txtOsWarnMsg.Text = $strings.OsWarnMsg
 $btnContinue.Content = $strings.BtnContinue
 $btnClose.Content = $strings.BtnClose
 $btnOsClose.Content = $strings.BtnClose
+$btnRamContinue.Content = $strings.BtnContinue
+$btnRamClose.Content = $strings.BtnClose
+
+# Set RAM warning text (block or warn)
+if ($isRamBlock) {
+    $txtRamWarnTitle.Text = $strings.RamBlockTitle -f $ramGB
+    $txtRamWarnMsg.Text = $strings.RamBlockMsg -f $ramGB
+    $btnRamContinue.Visibility = "Collapsed"  # < 2 GB: no Continue, only Close
+} elseif ($isRamWarn) {
+    $txtRamWarnTitle.Text = $strings.RamWarnTitle -f $ramGB
+    $txtRamWarnMsg.Text = $strings.RamWarnMsg -f $ramGB
+}
 
 # Load logo image
 $logoPath = Join-Path $DiscPath "resources\images\logo-button.png"
@@ -402,6 +482,7 @@ if (Test-Path $logoPath) {
         $imgLogo.Source = $bitmap
         $imgLogoWarn.Source = $bitmap
         $imgLogoOs.Source = $bitmap
+        $imgLogoRam.Source = $bitmap
     } catch { }
 }
 
@@ -713,27 +794,46 @@ $completionTimer.Add_Tick({
 })
 
 # --- Window Loaded event ---
+# Priority: OS check > RAM check > 32-bit check > loading
 $window.Add_Loaded({
     if ($isOldOS) {
-        # Windows < 10: show OS warning (only Close button, no Continue)
+        # Windows < 10: show OS warning (only Close button)
         $panelOsWarning.Visibility = "Visible"
-        $panelWarning.Visibility = "Collapsed"
-        $panelLoading.Visibility = "Collapsed"
+    } elseif ($isRamBlock -or $isRamWarn) {
+        # RAM < 2 GB (block) or 2-3 GB (warning with continue)
+        $panelRamWarning.Visibility = "Visible"
     } elseif ($is32bit) {
-        # Show 32-bit warning first
+        # 32-bit: show warning (Continue / Close)
         $panelWarning.Visibility = "Visible"
-        $panelLoading.Visibility = "Collapsed"
     } else {
-        # 64-bit + Windows 10+: go straight to loading
-        $panelWarning.Visibility = "Collapsed"
+        # All checks passed: go straight to loading
         Start-Worker
         $animTimer.Start()
         $completionTimer.Start()
     }
 })
 
-# --- OS warning button (Close only — no Continue option) ---
+# --- OS warning button (Close only) ---
 $btnOsClose.Add_Click({
+    $syncHash.ExitCode = 0
+    $window.Close()
+})
+
+# --- RAM warning buttons ---
+$btnRamContinue.Add_Click({
+    # 2-3 GB: user chose to continue despite low RAM
+    $panelRamWarning.Visibility = "Collapsed"
+    if ($is32bit) {
+        # Also show 32-bit warning
+        $panelWarning.Visibility = "Visible"
+    } else {
+        Start-Worker
+        $animTimer.Start()
+        $completionTimer.Start()
+    }
+})
+
+$btnRamClose.Add_Click({
     $syncHash.ExitCode = 0
     $window.Close()
 })

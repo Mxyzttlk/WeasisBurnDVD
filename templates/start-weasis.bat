@@ -195,12 +195,59 @@ if %OS_MAJOR% LSS 10 (
     exit /b 0
 )
 
+REM --- RAM check (uses wmic to get total physical memory) ---
+set "RAM_MB=0"
+for /f "skip=1 tokens=*" %%a in ('wmic computersystem get TotalPhysicalMemory 2^>nul') do (
+    for /f "tokens=1" %%b in ("%%a") do (
+        if not "%%b"=="" set "RAM_BYTES=%%b"
+    )
+)
+if defined RAM_BYTES (
+    set "RAM_TRUNC=%RAM_BYTES:~0,-6%"
+    if defined RAM_TRUNC set /a "RAM_MB=%RAM_TRUNC%" 2>nul
+)
+
+REM RAM < 2048 MB = block, 2048-4095 MB = warning
+if %RAM_MB% LSS 2048 if %RAM_MB% GTR 0 (
+    echo.
+    echo   ================================================
+    if "%LANG%"=="ro" (
+        echo   [!] Memorie RAM insuficienta: %RAM_MB% MB
+        echo   Weasis necesita minim 2 GB RAM.
+        echo   Recomandam sa folositi aplicatia RadiAnt.
+    ) else if "%LANG%"=="ru" (
+        echo   [!] Nedostatochno operativnoj pamyati: %RAM_MB% MB
+        echo   Weasis trebuet minimum 2 GB RAM.
+        echo   Rekomenduem ispol'zovat' RadiAnt.
+    ) else (
+        echo   [!] Insufficient RAM: %RAM_MB% MB
+        echo   Weasis requires at least 2 GB RAM.
+        echo   We recommend using RadiAnt.
+    )
+    echo   ================================================
+    echo.
+    pause
+    exit /b 0
+)
+
 echo.
 echo   %C_GREEN%=======================================================%C_R%
 echo   %C_GREEN% Weasis v3.7.1%C_R%  ^|  %C_CYAN%JRE: %ARCH_LABEL%%C_R%
 echo   %C_GREEN%=======================================================%C_R%
 echo   %C_GRAY%%S_WAIT%%C_R%
 echo.
+
+REM --- RAM warning (2-4 GB) ---
+if %RAM_MB% LSS 4096 (
+    if "%LANG%"=="ro" (
+        echo   %C_YELLOW%[!] Memorie RAM redusa: %RAM_MB% MB. Recomandam minim 4 GB.%C_R%
+    ) else if "%LANG%"=="ru" (
+        echo   %C_YELLOW%[!] Malo operativnoj pamyati: %RAM_MB% MB. Rekomenduem minimum 4 GB.%C_R%
+    ) else (
+        echo   %C_YELLOW%[!] Low RAM: %RAM_MB% MB. We recommend at least 4 GB.%C_R%
+    )
+    echo.
+)
 
 REM --- 32-bit warning ---
 if "%ARCH_LABEL%"=="32-bit" (
