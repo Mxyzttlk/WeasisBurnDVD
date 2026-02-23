@@ -347,6 +347,61 @@ if ((Test-Path $wv2CoreDll) -and (Test-Path $wv2WpfDll) -and (Test-Path $wv2Load
 }
 
 # ============================================================================
+# Step 3b: Check/Install WebView2 Runtime (needed by PACS Burner app)
+# ============================================================================
+
+# WebView2 Runtime comes with Edge Chromium on Win 10/11, but may be missing on clean installs.
+# Check registry for installed runtime.
+
+$wv2RuntimeFound = $false
+$wv2RegPaths = @(
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BEB-E15AB5810CD5}",
+    "HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BEB-E15AB5810CD5}",
+    "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BEB-E15AB5810CD5}"
+)
+
+foreach ($regPath in $wv2RegPaths) {
+    if (Test-Path $regPath) {
+        $ver = (Get-ItemProperty $regPath -ErrorAction SilentlyContinue).pv
+        if ($ver) {
+            Write-Ok "WebView2 Runtime deja instalat (v$ver)"
+            $wv2RuntimeFound = $true
+            break
+        }
+    }
+}
+
+if (-not $wv2RuntimeFound) {
+    Write-Status "WebView2 Runtime nu este instalat. Descarc si instalez..."
+    Write-Host "    (Necesar pentru PACS Burner - browserul integrat)" -ForegroundColor Yellow
+
+    $bootstrapperUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+    $bootstrapperPath = Join-Path $ToolsDir "MicrosoftEdgeWebview2Setup.exe"
+
+    try {
+        Download-File -Url $bootstrapperUrl -OutFile $bootstrapperPath
+        Write-Ok "Bootstrapper descarcat"
+
+        Write-Host "    Instalez WebView2 Runtime (poate dura 1-2 minute)..." -ForegroundColor Yellow
+        $proc = Start-Process -FilePath $bootstrapperPath -ArgumentList "/silent /install" -Wait -PassThru
+        if ($proc.ExitCode -eq 0) {
+            Write-Ok "WebView2 Runtime instalat cu succes"
+        } else {
+            Write-Host "    [ATENTIE] Instalarea a returnat codul: $($proc.ExitCode)" -ForegroundColor Yellow
+            Write-Host "    PACS Burner ar putea sa nu functioneze." -ForegroundColor Yellow
+            Write-Host "    Instaleaza manual Microsoft Edge sau WebView2 Runtime." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "    [ATENTIE] Nu am putut descarca WebView2 Runtime." -ForegroundColor Yellow
+        Write-Host "    Instaleaza manual de la: https://developer.microsoft.com/en-us/microsoft-edge/webview2/" -ForegroundColor Yellow
+        Write-Host "    Sau instaleaza Microsoft Edge (include WebView2 Runtime)." -ForegroundColor Yellow
+    }
+
+    # Clean up bootstrapper
+    Remove-Item -Path $bootstrapperPath -Force -ErrorAction SilentlyContinue
+}
+
+# ============================================================================
 # Step 4: Verify everything
 # ============================================================================
 
