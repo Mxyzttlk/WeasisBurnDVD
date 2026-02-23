@@ -895,8 +895,8 @@ function Start-BurnProcess {
     if ($script:Settings.simulateOnly) {
         $psArgs += " -SimulateOnly"
     }
-    # Launch WPF burn GUI (replaces CMD window)
-    $script:burnProc = Start-Process powershell -ArgumentList $psArgs -WorkingDirectory $ProjectRoot -PassThru
+    # Launch WPF burn GUI — Hidden suppresses console window, GUI shows WPF only
+    $script:burnProc = Start-Process powershell -ArgumentList $psArgs -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru
 
     # Monitor burn process — when CMD closes, bring window to foreground + reload page
     $script:burnMonitorTimer = [System.Windows.Threading.DispatcherTimer]::new()
