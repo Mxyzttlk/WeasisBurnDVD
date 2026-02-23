@@ -163,6 +163,38 @@ set "S_WARN32_PROMPT=Press any key to continue or close this window."
 exit /b 0
 
 :CMD_START
+
+REM --- OS version check (Windows 10 = ver 10.x, Windows 7 = ver 6.x) ---
+for /f "tokens=4 delims=[] " %%v in ('ver') do set "OS_VER=%%v"
+for /f "tokens=1 delims=." %%m in ("%OS_VER%") do set "OS_MAJOR=%%m"
+if %OS_MAJOR% LSS 10 (
+    echo.
+    echo   ================================================
+    echo   [!] Windows %OS_VER% detectat
+    echo.
+    if "%LANG%"=="ro" (
+        echo   Sistemul de operare nu indeplineste cerintele.
+        echo   Weasis necesita Windows 10 sau mai nou.
+        echo   Recomandam sa folositi aplicatia RadiAnt
+        echo   pentru vizualizarea imaginilor DICOM.
+    ) else if "%LANG%"=="ru" (
+        echo   Operacionnaya sistema ne sootvetstvuet trebovaniyam.
+        echo   Weasis trebuet Windows 10 ili novee.
+        echo   Rekomenduem ispol'zovat' RadiAnt
+        echo   dlya prosmotra izobrazhenij DICOM.
+    ) else (
+        echo   Operating system does not meet requirements.
+        echo   Weasis requires Windows 10 or newer.
+        echo   We recommend using RadiAnt
+        echo   for viewing DICOM images.
+    )
+    echo.
+    echo   ================================================
+    echo.
+    pause
+    exit /b 0
+)
+
 echo.
 echo   %C_GREEN%=======================================================%C_R%
 echo   %C_GREEN% Weasis v3.7.1%C_R%  ^|  %C_CYAN%JRE: %ARCH_LABEL%%C_R%
