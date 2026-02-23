@@ -326,7 +326,17 @@ function Copy-TemplatesToStaging {
     Write-Status "Copiez templates..."
 
     # autorun.inf goes to disc root (Windows reads it from root only)
-    Copy-Item -Path (Join-Path $TemplatesDir "autorun.inf") -Destination $DiscStaging -Force
+    # Generate dynamically with patient name as label (overrides IMAPI2 VolumeName in Explorer)
+    $autorunPath = Join-Path $DiscStaging "autorun.inf"
+    $autoLabel = if ($script:discLabel) { $script:discLabel } else { "Weasis DICOM Viewer" }
+    $autorunContent = @"
+[autorun]
+open=Weasis\start-weasis.bat
+icon=Weasis\weasis.ico
+label=$autoLabel
+action=Open DICOM Viewer (Weasis)
+"@
+    [System.IO.File]::WriteAllText($autorunPath, $autorunContent, [System.Text.Encoding]::ASCII)
 
     # Everything else goes into Weasis/ subfolder
     Copy-Item -Path (Join-Path $TemplatesDir "start-weasis.bat") -Destination $ContentDir -Force
@@ -401,33 +411,108 @@ function Generate-Dicomdir {
         return
     }
 
+    # DICOM Part 10 File IDs: max 8 chars per component, uppercase A-Z 0-9 _, NO dots.
+    # dcmmkdir strictly enforces this. Fix staging files/dirs to be compliant.
+
+    # Show actual staging structure for diagnostics
+    $topDirs = Get-ChildItem -Path $dicomDir -Directory -ErrorAction SilentlyContinue
+    if ($topDirs) {
+        Write-Host "    Structura DICOM in staging:" -ForegroundColor Gray
+        foreach ($d in $topDirs) {
+            Write-Host "      $($d.Name)/" -ForegroundColor Gray
+        }
+    }
+
+    # Step A: Strip .DCM extensions from files
+    $renamedCount = 0
+    Get-ChildItem -Path $dicomDir -Recurse -File | Where-Object {
+        $_.Extension -match "^\.(dcm|DCM)$"
+    } | ForEach-Object {
+        Rename-Item -Path $_.FullName -NewName $_.BaseName -ErrorAction SilentlyContinue
+        $renamedCount++
+    }
+    if ($renamedCount -gt 0) {
+        Write-Ok "Eliminat extensia .DCM de la $renamedCount fisiere"
+    }
+
+    # Step B: Make ALL directory and file names DICOM-compliant
+    # - Uppercase only, max 8 chars, only A-Z 0-9 _
+    # Process deepest paths first (to avoid renaming parent before child)
+    Get-ChildItem -Path $dicomDir -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending | ForEach-Object {
+        $newName = $_.Name.ToUpper()
+        # Replace invalid chars (anything not A-Z, 0-9, _) with nothing
+        $newName = $newName -replace '[^A-Z0-9_]', ''
+        # Truncate to 8 characters
+        if ($newName.Length -gt 8) { $newName = $newName.Substring(0, 8) }
+        if ($newName -eq '') { $newName = 'D' + (Get-Random -Minimum 1000 -Maximum 9999) }
+        if ($_.Name -cne $newName) {
+            # Two-step rename: NTFS is case-insensitive, so 'cted'->'CTED' silently fails.
+            # Workaround: rename to temp name first, then to final uppercase name.
+            $parentDir = Split-Path $_.FullName
+            $tempName = "_ren_" + (Get-Random -Minimum 10000 -Maximum 99999)
+            $tempPath = Join-Path $parentDir $tempName
+            Rename-Item -Path $_.FullName -NewName $tempName -ErrorAction SilentlyContinue
+            if (Test-Path $tempPath) {
+                Rename-Item -Path $tempPath -NewName $newName -ErrorAction SilentlyContinue
+                Write-Host "    Redenumit dir: $($_.Name) -> $newName" -ForegroundColor Gray
+            } else {
+                Write-Host "    [!] Nu am putut redenumi dir: $($_.Name)" -ForegroundColor Yellow
+            }
+        }
+    }
+
+    # Step C: Make file names compliant (uppercase, max 8 chars, no invalid chars)
+    Get-ChildItem -Path $dicomDir -Recurse -File | ForEach-Object {
+        $newName = $_.BaseName.ToUpper()
+        $newName = $newName -replace '[^A-Z0-9_]', ''
+        if ($newName.Length -gt 8) { $newName = $newName.Substring(0, 8) }
+        if ($newName -eq '') { $newName = 'F' + (Get-Random -Minimum 10000 -Maximum 99999) }
+        $ext = $_.Extension  # should be empty after Step A
+        $fullNew = $newName + $ext
+        if ($_.Name -cne $fullNew) {
+            # Two-step rename for NTFS case-insensitive filesystem
+            $parentDir = Split-Path $_.FullName
+            $tempName = "_ren_" + (Get-Random -Minimum 10000 -Maximum 99999)
+            $tempPath = Join-Path $parentDir $tempName
+            Rename-Item -Path $_.FullName -NewName $tempName -ErrorAction SilentlyContinue
+            if (Test-Path $tempPath) {
+                Rename-Item -Path $tempPath -NewName $fullNew -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    Write-Ok "Fisiere si directoare normalizate (DICOM-compliant)"
+
     # Set DICOM dictionary path (needed by dcmtk to parse tags)
     $dictPath = Join-Path $DcmtkDir "share\dcmtk\dicom.dic"
     if (Test-Path $dictPath) {
         $env:DCMDICTPATH = $dictPath
     }
 
-    # dcmmkdir MUST run from disc root -- DICOMDIR stores paths relative to itself
-    # Result: DICOMDIR at disc root with paths like WEASIS\DICOM\DIR000\filename
-    Push-Location $DiscStaging
-    try {
-        # +r = recurse, +id = input directory, +D = output file, +I = invent missing attrs, -Pgp = General Purpose profile
-        $dcmArgs = @("+r", "+id", "Weasis\DICOM", "+D", "DICOMDIR", "+I", "-Pgp")
-        $output = & $dcmmkdir @dcmArgs 2>&1
+    $dicomdirPath = Join-Path $DiscStaging "DICOMDIR"
 
-        $dicomdirPath = Join-Path $DiscStaging "DICOMDIR"
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $dicomdirPath)) {
-            $dicomdirSize = (Get-Item $dicomdirPath).Length
-            Write-Ok "DICOMDIR generat ($([math]::Round($dicomdirSize / 1KB)) KB) - statiile medicale vor recunoaste discul"
-        } else {
-            Write-Host "    [ATENTIE] dcmmkdir a esuat (cod: $LASTEXITCODE)" -ForegroundColor Yellow
-            if ($output) {
-                $output | Select-Object -Last 5 | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
-            }
-            Write-Host "    Discul va functiona cu Weasis, dar poate nu cu statiile medicale." -ForegroundColor Yellow
-        }
+    # Temporarily relax error handling (dcmmkdir writes info/warnings to stderr,
+    # PowerShell $ErrorActionPreference="Stop" would treat them as terminating errors)
+    $savedEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        # cd to disc root so DICOMDIR stores relative paths
+        # +r=recurse, +id=input dir, +D=output, +I=invent missing attrs, -Pgp=General Purpose
+        $cmdLine = "cd /d `"$DiscStaging`" && `"$dcmmkdir`" +r +id Weasis\DICOM +D DICOMDIR +I -Pgp"
+        $output = cmd /c $cmdLine 2>&1
     } finally {
-        Pop-Location
+        $ErrorActionPreference = $savedEAP
+    }
+
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $dicomdirPath)) {
+        $dicomdirSize = (Get-Item $dicomdirPath).Length
+        Write-Ok "DICOMDIR generat ($([math]::Round($dicomdirSize / 1KB)) KB) - statiile medicale vor recunoaste discul"
+    } else {
+        Write-Host "    [ATENTIE] dcmmkdir a esuat (cod: $LASTEXITCODE)" -ForegroundColor Yellow
+        if ($output) {
+            $output | Select-Object -Last 10 | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
+        }
+        Write-Host "    Discul va functiona cu Weasis, dar poate nu cu statiile medicale." -ForegroundColor Yellow
     }
 }
 

@@ -526,6 +526,23 @@ function Initialize-WebView2 {
 function Setup-WebView2Events {
     $coreWv2 = $script:webView.CoreWebView2
 
+    # --- Allow popups: wrap window.open so site doesn't detect blocked popups ---
+    # PACS site calls window.open() and checks if it returns null (=blocked).
+    # We call the ORIGINAL window.open (so NewWindowRequested event fires in WebView2),
+    # but always return 'window' instead of null to bypass the popup detection.
+    $popupScript = @"
+(function() {
+    var _origOpen = window.open;
+    window.open = function(url, target, features) {
+        if (url && url !== '' && url !== 'about:blank') {
+            try { _origOpen.call(window, url, target, features); } catch(e) {}
+        }
+        return window;
+    };
+})();
+"@
+    $coreWv2.AddScriptToExecuteOnDocumentCreatedAsync($popupScript) | Out-Null
+
     # --- Navigation completed: auto-login, auto-unlock, auto-exclude-viewer ---
     $coreWv2.Add_NavigationCompleted({
         param($s, $e)
@@ -544,7 +561,14 @@ function Setup-WebView2Events {
             })
             $autoTimer.Start()
         } else {
-            Update-Status "Eroare navigare: $($e.WebErrorStatus)" "#D32F2F"
+            # Suppress ConnectionAborted — happens normally when:
+            # 1. Navigation redirects to a file download (server responds with Content-Disposition)
+            # 2. NewWindowRequested navigates to a download URL
+            # The download itself works fine via DownloadStarting event.
+            $errStatus = "$($e.WebErrorStatus)"
+            if ($errStatus -ne "ConnectionAborted") {
+                Update-Status "Eroare navigare: $errStatus" "#D32F2F"
+            }
         }
     })
 
@@ -817,20 +841,16 @@ function Start-BurnProcess {
         return
     }
     Update-Status "Lansez burn.ps1..." "#FFA500"
-    $burnArgs = @(
-        "-ExecutionPolicy", "Bypass",
-        "-File", "`"$BurnScript`"",
-        "-ZipPath", "`"$($script:currentZipPath)`""
-    )
-    # Pass burn speed
+    # Build burn command — use cmd /k so window stays open on error
     $bSpeed = if ($script:Settings.burnSpeed) { $script:Settings.burnSpeed } else { 4 }
-    $burnArgs += @("-BurnSpeed", "$bSpeed")
-    # Pass drive ID if saved
     $bDrive = $script:Settings.burnDriveId
+
+    $psCmd = "powershell -ExecutionPolicy Bypass -File `"$BurnScript`" -ZipPath `"$($script:currentZipPath)`" -BurnSpeed $bSpeed"
     if ($bDrive) {
-        $burnArgs += @("-DriveID", "`"$bDrive`"")
+        $psCmd += " -DriveID `"$bDrive`""
     }
-    Start-Process powershell -ArgumentList $burnArgs
+    # cmd /k keeps window open after burn completes or errors
+    Start-Process cmd -ArgumentList "/k", "chcp 65001 >nul & title DICOM DVD Burn & $psCmd & echo. & pause & exit"
 }
 
 # ============================================================================
