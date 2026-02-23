@@ -53,6 +53,22 @@ Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Windows.Forms
 
+# Win32 API for forcing window to foreground (Activate() alone doesn't work from background)
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32Focus {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
+    [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+    public const int SW_RESTORE = 9;
+    public const int SW_SHOW = 5;
+}
+"@
+
 # WebView2 DLLs - WebView2Loader.dll must be in same directory or PATH
 $env:Path = "$WebView2Dir;$env:Path"
 Add-Type -Path $wv2CoreDll
@@ -88,6 +104,7 @@ function Get-DefaultSettings {
         autoExcludeViewer = $true
         burnSpeed     = 4
         burnDriveId   = ""
+        simulateOnly  = $false
     }
 }
 
@@ -401,6 +418,7 @@ $script:Settings = Load-Settings
             <CheckBox x:Name="chkAutoLogin" Content="Auto-login la conectare" Foreground="#CCCCCC" FontSize="12" Margin="0,2"/>
             <CheckBox x:Name="chkAutoUnlock" Content="Auto-deblocare sesiune" Foreground="#CCCCCC" FontSize="12" Margin="0,2"/>
             <CheckBox x:Name="chkAutoExclude" Content="Auto-bifare 'Exclude Viewer'" Foreground="#CCCCCC" FontSize="12" Margin="0,2"/>
+            <CheckBox x:Name="chkSimulate" Content="Simulare (fara ardere pe disc)" Foreground="#FFA500" FontSize="12" Margin="0,6,0,2"/>
         </StackPanel>
 
         <!-- Buttons -->
@@ -579,6 +597,9 @@ function Setup-WebView2Events {
         $filename = [System.IO.Path]::GetFileName($origPath)
 
         if ($filename -match '\.zip$') {
+            # Stop download poll timer — download actually started
+            if ($script:downloadPollTimer) { $script:downloadPollTimer.Stop() }
+
             $downloadPath = Join-Path $DownloadsDir $filename
             $e.ResultFilePath = $downloadPath
             $e.Handled = $true
@@ -789,17 +810,20 @@ function Start-PacsDownload {
     $clickToolbarJs = "var d=document.querySelector('.glyphicon-download');if(d&&d.closest('button')){d.closest('button').click();'ok'}else{'no-btn'}"
     $script:webView.CoreWebView2.ExecuteScriptAsync($clickToolbarJs) | Out-Null
 
-    # Step 2: Poll with DispatcherTimer - each tick injects fresh JS
+    # Step 2: Poll with DispatcherTimer — stateless JS on each tick:
+    #   - No modal yet → keeps polling
+    #   - Modal found, checkbox unchecked → clicks checkbox, waits for next tick
+    #   - Modal found, checkbox checked → clicks Descarcare
+    #   - Timer stops when DownloadStarting event fires (or timeout 30s)
     $script:downloadPollCount = 0
-    $script:downloadPollPhase = "checkbox"  # checkbox -> download -> cleanup
 
     $script:downloadPollTimer = [System.Windows.Threading.DispatcherTimer]::new()
-    $script:downloadPollTimer.Interval = [TimeSpan]::FromMilliseconds(800)
+    $script:downloadPollTimer.Interval = [TimeSpan]::FromMilliseconds(1000)
     $script:downloadPollTimer.Add_Tick({
         $script:downloadPollCount++
 
         # Stop after 30 sec
-        if ($script:downloadPollCount -gt 37) {
+        if ($script:downloadPollCount -gt 30) {
             $this.Stop()
             if ($script:autoBurnPending) {
                 $script:autoBurnPending = $false
@@ -810,23 +834,38 @@ function Start-PacsDownload {
 
         if (-not $script:webViewReady) { return }
 
-        if ($script:downloadPollPhase -eq "checkbox") {
-            # Check "Exclude Viewer" checkbox
-            $js = "var ls=document.querySelectorAll('label');var r='no-modal';for(var i=0;i<ls.length;i++){if(ls[i].textContent.indexOf('Exclude Viewer')>=0){var c=ls[i].querySelector('input[type=checkbox]');if(c&&!c.checked)c.click();r='checked';break}}r"
-            $script:webView.CoreWebView2.ExecuteScriptAsync($js) | Out-Null
-            $script:downloadPollPhase = "download"
-            return
-        }
+        # Stateless JS — no phases needed, each tick tries the full sequence:
+        # 1. Find modal → if not found, return (keep polling)
+        # 2. Find "Exclude Viewer" checkbox → if unchecked, click it and return (next tick will continue)
+        # 3. If checkbox already checked → click btn-primary (Descarcare)
+        $js = @"
+(function() {
+    var modal = document.querySelector('.modal-dialog');
+    if (!modal) return 'no-modal';
 
-        if ($script:downloadPollPhase -eq "download") {
-            # Click the btn-primary (Descarcare) button
-            $js = "var bs=document.querySelectorAll('button');var r='no-btn';for(var i=0;i<bs.length;i++){if(bs[i].className.indexOf('btn-primary')>=0&&bs[i].textContent.indexOf('Desc')>=0){bs[i].click();r='clicked';break}}r"
-            $script:webView.CoreWebView2.ExecuteScriptAsync($js) | Out-Null
-            $script:downloadPollPhase = "done"
-            $this.Stop()
-            Update-Status "Descarcare initiata..." "#FFA500"
-            return
+    var labels = modal.querySelectorAll('label');
+    for (var i = 0; i < labels.length; i++) {
+        if (labels[i].textContent.indexOf('Exclude Viewer') >= 0) {
+            var cb = labels[i].querySelector('input[type=checkbox]');
+            if (cb && !cb.checked) {
+                cb.click();
+                return 'checkbox-clicked';
+            }
+            break;
         }
+    }
+
+    var btns = modal.querySelectorAll('button');
+    for (var j = 0; j < btns.length; j++) {
+        if (btns[j].className.indexOf('btn-primary') >= 0) {
+            btns[j].click();
+            return 'download-clicked';
+        }
+    }
+    return 'no-btn';
+})();
+"@
+        $script:webView.CoreWebView2.ExecuteScriptAsync($js) | Out-Null
     })
     $script:downloadPollTimer.Start()
 }
@@ -840,65 +879,53 @@ function Start-BurnProcess {
         Update-Status "Nu exista ZIP pentru burn" "#D32F2F"
         return
     }
-    Update-Status "Lansez burn.ps1..." "#FFA500"
-    # Build burn command — use cmd /k so window stays open on error
+    $simLabel = if ($script:Settings.simulateOnly) { " (SIMULARE)" } else { "" }
+    Update-Status "Lansez burn.ps1$simLabel..." "#FFA500"
+    # Build burn command
     $bSpeed = if ($script:Settings.burnSpeed) { $script:Settings.burnSpeed } else { 4 }
     $bDrive = $script:Settings.burnDriveId
 
-    $psCmd = "powershell -ExecutionPolicy Bypass -File `"$BurnScript`" -ZipPath `"$($script:currentZipPath)`" -BurnSpeed $bSpeed"
+    $psCmd = "powershell -ExecutionPolicy Bypass -File `"$BurnScript`" -ZipPath `"$($script:currentZipPath)`" -BurnSpeed $bSpeed -AutoConfirm"
     if ($bDrive) {
         $psCmd += " -DriveID `"$bDrive`""
     }
-    # cmd /k keeps window open after burn completes or errors
-    $script:burnProc = Start-Process cmd -ArgumentList "/k", "chcp 65001 >nul & title DICOM DVD Burn & $psCmd & echo. & pause & exit" -PassThru
-
-    # Monitor burn process — when CMD window closes, do post-burn cleanup
-    $script:burnMonitorTimer = [System.Windows.Threading.DispatcherTimer]::new()
-    $script:burnMonitorTimer.Interval = [TimeSpan]::FromSeconds(2)
-    $script:burnMonitorTimer.Add_Tick({
-        if ($script:burnProc.HasExited) {
-            $this.Stop()
-            $script:burnProc = $null
-            $script:currentZipPath = $null
-
-            # Reset status bar
-            Update-Status "Conectat" "#0F9B58"
-            $window.Dispatcher.Invoke([Action]{
-                $txtZipInfo.Text = ""
-            })
-
-            # Click "Curatare" in download modal, then close modal (with delay for WebView focus)
-            if ($script:webViewReady) {
-                $script:postBurnTimer = [System.Windows.Threading.DispatcherTimer]::new()
-                $script:postBurnTimer.Interval = [TimeSpan]::FromSeconds(1)
-                $script:postBurnTimer.Add_Tick({
-                    $this.Stop()
-                    # Click "Curatare" in download modal, then close modal
-                    $cleanupJs = @"
-(function() {
-    var modal = document.querySelector('.modal');
-    var scope = modal || document;
-    var elems = scope.querySelectorAll('button, a.btn, input[type=button]');
-    for (var i = 0; i < elems.length; i++) {
-        var txt = (elems[i].textContent || elems[i].value || '').trim();
-        if (txt.indexOf('Cura') >= 0 || txt.indexOf('cura') >= 0 || txt.indexOf('tire') >= 0 || txt.indexOf('Clean') >= 0) {
-            elems[i].click();
-            break;
-        }
+    if ($script:Settings.simulateOnly) {
+        $psCmd += " -SimulateOnly"
     }
-    setTimeout(function() {
-        var closeBtns = document.querySelectorAll('.modal .close, .modal button.close, .modal-header .close, [data-dismiss=modal]');
-        for (var j = 0; j < closeBtns.length; j++) {
-            closeBtns[j].click();
-        }
-    }, 800);
-})();
-"@
-                    $script:webView.CoreWebView2.ExecuteScriptAsync($cleanupJs) | Out-Null
-                })
-                $script:postBurnTimer.Start()
+    # cmd /c with pause — keeps window open for user, then closes cleanly
+    # -WorkingDirectory prevents Windows from restoring app/ folder in Explorer on CMD exit
+    $script:burnProc = Start-Process cmd -ArgumentList "/c", "chcp 65001 >nul & title DICOM DVD Burn & $psCmd & echo. & pause" -WorkingDirectory $ProjectRoot -PassThru
+
+    # Monitor burn process — when CMD closes, bring window to foreground + reload page
+    $script:burnMonitorTimer = [System.Windows.Threading.DispatcherTimer]::new()
+    $script:burnMonitorTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+    $script:burnMonitorTimer.Add_Tick({
+        if (-not $script:burnProc -or -not $script:burnProc.HasExited) { return }
+        $this.Stop()
+        $script:burnProc = $null
+        $script:currentZipPath = $null
+
+        # Reset status bar
+        $window.Dispatcher.Invoke([Action]{ $txtZipInfo.Text = "" })
+
+        # Force window to foreground (Win32 API bypasses focus lock)
+        $window.Dispatcher.Invoke([Action]{
+            $hwnd = (New-Object System.Windows.Interop.WindowInteropHelper($window)).Handle
+            if ($hwnd -ne [IntPtr]::Zero) {
+                $fgWnd = [Win32Focus]::GetForegroundWindow()
+                $fgThread = [Win32Focus]::GetWindowThreadProcessId($fgWnd, [IntPtr]::Zero)
+                $myThread = [Win32Focus]::GetCurrentThreadId()
+                [Win32Focus]::AttachThreadInput($fgThread, $myThread, $true)
+                [Win32Focus]::ShowWindow($hwnd, [Win32Focus]::SW_RESTORE)
+                [Win32Focus]::SetForegroundWindow($hwnd)
+                [Win32Focus]::AttachThreadInput($fgThread, $myThread, $false)
             }
-        }
+            $window.Activate()
+        })
+
+        # Reload page to clear download modal - auto-login handles re-login
+        $script:webView.CoreWebView2.Reload()
+        Update-Status "Pagina reincarcata - auto-login..." "#FFA500"
     })
     $script:burnMonitorTimer.Start()
 }
@@ -986,6 +1013,7 @@ function Show-SettingsDialog {
     $chkAutoLogin   = $dlg.FindName("chkAutoLogin")
     $chkAutoUnlock  = $dlg.FindName("chkAutoUnlock")
     $chkAutoExclude = $dlg.FindName("chkAutoExclude")
+    $chkSimulate    = $dlg.FindName("chkSimulate")
     $btnNetAdd    = $dlg.FindName("btnNetAdd")
     $btnNetSave   = $dlg.FindName("btnNetSave")
     $btnNetDelete = $dlg.FindName("btnNetDelete")
@@ -1000,6 +1028,7 @@ function Show-SettingsDialog {
     $chkAutoLogin.IsChecked   = $script:Settings.autoLogin
     $chkAutoUnlock.IsChecked  = $script:Settings.autoUnlock
     $chkAutoExclude.IsChecked = $script:Settings.autoExcludeViewer
+    $chkSimulate.IsChecked    = $script:Settings.simulateOnly
 
     # --- Force white text on ComboBox (WPF default template ignores Foreground) ---
     $whiteBrush = [System.Windows.Media.Brushes]::White
@@ -1169,6 +1198,7 @@ function Show-SettingsDialog {
             $script:Settings.autoLogin        = [bool]$chkAutoLogin.IsChecked
             $script:Settings.autoUnlock       = [bool]$chkAutoUnlock.IsChecked
             $script:Settings.autoExcludeViewer = [bool]$chkAutoExclude.IsChecked
+            $script:Settings.simulateOnly     = [bool]$chkSimulate.IsChecked
 
             # Save burn speed
             $spdIdx = $cmbBurnSpeed.SelectedIndex

@@ -10,7 +10,9 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$ZipPath,
     [string]$DriveID = "",
-    [int]$BurnSpeed = 4
+    [int]$BurnSpeed = 4,
+    [switch]$AutoConfirm,
+    [switch]$SimulateOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -618,10 +620,28 @@ function Burn-ToDisc {
     $selectedDrive = Select-OpticalDrive
     $recorder = $selectedDrive.Recorder
 
-    # Prompt user to insert disc
-    Write-Host ""
-    Write-Host "    Introdu un DVD-R gol in $($selectedDrive.Letter) si apasa ENTER..." -ForegroundColor Yellow
-    Read-Host
+    # Check if blank media is already inserted (for AutoConfirm mode)
+    if ($AutoConfirm) {
+        $preCheck = $null
+        try {
+            $preCheck = New-Object -ComObject IMAPI2.MsftDiscFormat2Data
+            $preCheck.Recorder = $recorder
+            $preCheck.ClientName = "WeasisBurn"
+            $mediaReady = $preCheck.CurrentMediaStatus
+        } catch { $mediaReady = $null }
+
+        if ($mediaReady) {
+            Write-Ok "Disc gol detectat in $($selectedDrive.Letter) - continui automat"
+        } else {
+            Write-Host ""
+            Write-Host "    Introdu un DVD-R gol in $($selectedDrive.Letter) si apasa ENTER..." -ForegroundColor Yellow
+            Read-Host
+        }
+    } else {
+        Write-Host ""
+        Write-Host "    Introdu un DVD-R gol in $($selectedDrive.Letter) si apasa ENTER..." -ForegroundColor Yellow
+        Read-Host
+    }
 
     # Use IMAPI2 COM for burning
     Write-Status "Ardere in curs... (nu scoate discul!)"
@@ -810,15 +830,41 @@ Generate-Dicomdir
 # Step 9: Show summary
 Show-DiscSummary
 
-# Step 10: Confirm and burn
-Write-Host ""
-$confirm = Read-Host "Vrei sa arzi pe DVD-R acum? (da/nu)"
-if ($confirm -eq "da" -or $confirm -eq "d" -or $confirm -eq "y" -or $confirm -eq "yes") {
+# Step 10: Confirm and burn (or simulate)
+if ($SimulateOnly) {
+    Write-Status "SIMULARE - Nu se arde nimic pe disc!"
+    Write-Host ""
+    Write-Host "    ============================================" -ForegroundColor Magenta
+    Write-Host "    =         MOD SIMULARE ACTIV               =" -ForegroundColor Magenta
+    Write-Host "    ============================================" -ForegroundColor Magenta
+    Write-Host ""
+    Write-Host "    Toti pasii au fost executati cu succes:" -ForegroundColor White
+    Write-Host "      - ZIP extras" -ForegroundColor Green
+    Write-Host "      - DICOM copiat si organizat" -ForegroundColor Green
+    Write-Host "      - Weasis portable copiat" -ForegroundColor Green
+    Write-Host "      - Templates copiate" -ForegroundColor Green
+    Write-Host "      - DICOMDIR generat" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "    Fisierele pregatite sunt in:" -ForegroundColor White
+    Write-Host "      $DiscStaging" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "    Poti verifica structura discului in folderul de mai sus." -ForegroundColor White
+    Write-Host ""
+    $script:burnSuccess = $true  # simulate success for cleanup (ZIP delete)
+} elseif ($AutoConfirm) {
+    Write-Host ""
+    Write-Ok "AutoConfirm: pornesc arderea automat..."
     Burn-ToDisc
 } else {
     Write-Host ""
-    Write-Host "    Fisierele pregatite sunt in: $DiscStaging" -ForegroundColor Yellow
-    Write-Host "    Poti arde manual mai tarziu." -ForegroundColor Yellow
+    $confirm = Read-Host "Vrei sa arzi pe DVD-R acum? (da/nu)"
+    if ($confirm -eq "da" -or $confirm -eq "d" -or $confirm -eq "y" -or $confirm -eq "yes") {
+        Burn-ToDisc
+    } else {
+        Write-Host ""
+        Write-Host "    Fisierele pregatite sunt in: $DiscStaging" -ForegroundColor Yellow
+        Write-Host "    Poti arde manual mai tarziu." -ForegroundColor Yellow
+    }
 }
 
 # Step 11: Cleanup

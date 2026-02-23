@@ -54,7 +54,9 @@
       "Bash(ls -la \"E:\\\\Weasis Burn\\\\tools\"\" 2>/dev/null || echo \"tools/ folder not found \")",
       "WebFetch(domain:dicom.offis.de)",
       "WebFetch(domain:support.dcmtk.org)",
-      "WebFetch(domain:forum.dcmtk.org)"
+      "WebFetch(domain:forum.dcmtk.org)",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -NoProfile -Command \"& { $tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile\\(''E:\\\\Weasis Burn\\\\app\\\\pacs-burner.ps1'', [ref]$tokens, [ref]$errors\\); foreach \\($e in $errors\\) { Write-Host \\(''Line '' + $e.Extent.StartLineNumber + '': '' + $e.Message\\) } }\")",
+      "Bash(powershell.exe -ExecutionPolicy Bypass -NoProfile -File \"E:\\\\Weasis Burn\\\\scripts\\\\check-syntax.ps1\")"
     ]
   }
 }
