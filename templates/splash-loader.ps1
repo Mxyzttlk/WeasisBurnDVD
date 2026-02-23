@@ -687,6 +687,7 @@ $btnContinue.Add_Click({
 })
 
 $btnClose.Add_Click({
+    $syncHash.ExitCode = 0   # User closed intentionally — BAT should exit cleanly
     $window.Close()
 })
 
@@ -696,6 +697,7 @@ $btnMinimize.Add_Click({
 })
 
 $btnCloseWin.Add_Click({
+    $syncHash.ExitCode = 0   # User closed intentionally — BAT should exit cleanly
     $window.Close()
 })
 

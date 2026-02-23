@@ -36,7 +36,21 @@
       "WebFetch(domain:launch4j.sourceforge.net)",
       "WebFetch(domain:www.eclipse.org)",
       "WebFetch(domain:www.apache.org)",
-      "WebFetch(domain:openjdk.org)"
+      "WebFetch(domain:openjdk.org)",
+      "Bash(find \"C:\\\\Users\\\\Fucking_User\\\\Downloads\\\\PACS\"\" -type f \\\\\\( -name \"*.html\" -o -name \"*.htm \" \\\\\\))",
+      "Bash(done)",
+      "Bash(PYTHONIOENCODING=utf-8 python3:*)",
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -Command:*)",
+      "Bash(powershell -sta -NoProfile -ExecutionPolicy Bypass -File:*)",
+      "Bash(del \"E:\\\\Weasis Burn\\\\app\\\\test-xaml.ps1\")",
+      "Bash(del \"E:\\\\Weasis Burn\\\\scripts\\\\download-webview2.ps1\")",
+      "Bash(powershell -nologo -noprofile -Command:*)",
+      "Bash(powershell -nologo:*)",
+      "Bash(powershell.exe -nologo -noprofile -Command '$tokens=$null;$errors=$null;[void][System.Management.Automation.Language.Parser]::ParseFile\\(\\\\\"\"E:\\\\\\\\Weasis Burn\\\\\\\\app\\\\\\\\pacs-burner.ps1\\\\\"\",[ref]$tokens,[ref]$errors\\);Write-Host \\\\\"\"Errors: $\\($errors.Count\\)\\\\\"\";$errors|ForEach-Object{Write-Host \\\\\"\"L$\\($_.Extent.StartLineNumber\\): $\\($_.Message\\)\\\\\"\"}')",
+      "Bash(powershell.exe -nologo -noprofile -EncodedCommand \"JAB0AD0AJABuAHUAbABsADsAJABlAD0AJABuAHUAbABsADsAWwB2AG8AaQBkAF0AWwBTAHkAcwB0AGUAbQAuAE0AYQBuAGEAZwBlAG0AZQBuAHQALgBBAHUAdABvAG0AYQB0AGkAbwBuAC4ATABhAG4AZwB1AGEAZwBlAC4AUABhAHIAcwBlAHIAXQA6ADoAUABhAHIAcwBlAEYAaQBsAGUAKAAnAEUAOgBcAFcAZQBhAHMAaQBzACAAQgB1AHIAbgBcAGEAcABwAFwAcABhAGMAcwAtAGIAdQByAG4AZQByAC4AcABzADEAJwAsAFsAcgBlAGYAXQAkAHQALABbAHIAZQBmAF0AJABlACkAOwBXAHIAaQB0AGUALQBIAG8AcwB0ACAAIgBFAHIAcgBvAHIAcwA6ACAAJAAoACQAZQAuAEMAbwB1AG4AdAApACIAOwAkAGUAfABGAG8AcgBFAGEAYwBoAC0ATwBiAGoAZQBjAHQAewBXAHIAaQB0AGUALQBIAG8AcwB0ACAAIgBMACQAKAAkAF8ALgBFAHgAdABlAG4AdAAuAFMAdABhAHIAdABMAGkAbgBlAE4AdQBtAGIAZQByACkAOgAgACQAKAAkAF8ALgBNAGUAcwBzAGEAZwBlACkAIgB9AA==\")",
+      "Bash(powershell.exe -nologo -noprofile -EncodedCommand \"JABiAHkAdABlAHMAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAEkATwAuAEYAaQBsAGUAXQA6ADoAUgBlAGEAZABBAGwAbABCAHkAdABlAHMAKAAnAEUAOgBcAFcAZQBhAHMAaQBzACAAQgB1AHIAbgBcAGEAcABwAFwAcABhAGMAcwAtAGIAdQByAG4AZQByAC4AcABzADEAJwApADsAVwByAGkAdABlAC0ASABvAHMAdAAgACIAQgBPAE0AOgAgACQAKAAkAGIAeQB0AGUAcwBbADAAXQApACwAJAAoACQAYgB5AHQAZQBzAFsAMQBdACkALAAkACgAJABiAHkAdABlAHMAWwAyAF0AKQAiAA==\")",
+      "Bash(powershell.exe -nologo -noprofile -EncodedCommand \"JAB0AD0AJABuAHUAbABsADsAJABlAD0AJABuAHUAbABsADsAWwB2AG8AaQBkAF0AWwBTAHkAcwB0AGUAbQAuAE0AYQBuAGEAZwBlAG0AZQBuAHQALgBBAHUAdABvAG0AYQB0AGkAbwBuAC4ATABhAG4AZwB1AGEAZwBlAC4AUABhAHIAcwBlAHIAXQA6ADoAUABhAHIAcwBlAEYAaQBsAGUAKAAnAEUAOgBcAFcAZQBhAHMAaQBzACAAQgB1AHIAbgBcAGEAcABwAFwAcABhAGMAcwAtAGIAdQByAG4AZQByAC4AcABzADEAJwAsAFsAcgBlAGYAXQAkAHQALABbAHIAZQBmAF0AJABlACkAOwBXAHIAaQB0AGUALQBIAG8AcwB0ACAAIgBFAHIAcgBvAHIAcwA6ACAAJAAoACQAZQAuAEMAbwB1AG4AdAApACIA\")",
+      "Bash(powershell.exe -NoProfile:*)"
     ]
   }
 }

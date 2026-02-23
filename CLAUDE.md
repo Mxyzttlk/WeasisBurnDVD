@@ -117,6 +117,56 @@ Note: NO DICOMDIR on disc (paths incompatible with flat layout).
 - DICOMDIR from PACS ZIP references viewer-mac.app paths, must be excluded from disc.
 - Weasis caches OSGI bundles in `%USERPROFILE%\.weasis\cache-XXXXXXXX\`. Corrupted cache from failed launches can slow startup. Felix auto-cleans corrupted bundles on next launch but it takes time.
 - Windows 10+ blocks autorun on optical media. User must right-click > Open disc, then run start-weasis.bat.
+- **PACS Burner Settings dialog**: ComboBox text in "Burning" section (Writer, Viteza) is barely visible — dark gray on dark background. WPF default ComboBox template ignores `Foreground` property on the selected item display area. Tried: XAML style, ComboBoxItem with explicit Foreground, `TextElement.Foreground` attached property — none fully work. Needs custom ControlTemplate for ComboBox or alternative UI approach (e.g. TextBlock + popup).
+
+## Licensing — DVD Disc Components
+
+All components on the burned DVD are open-source. Custom scripts (burn.ps1, start-weasis.bat, splash-loader.ps1, launcher.cs) are our own code with no OSS license obligations.
+
+### Component Licenses
+
+| Component | Version | License | Obligation |
+|-----------|---------|---------|------------|
+| **Weasis** | 3.7.1 | EPL-2.0 OR Apache-2.0 (choose Apache) | Include license text, retain notices |
+| **Adoptium JRE** | 8 (x86 + x64) | GPL-2.0 WITH Classpath-exception-2.0 | Point to source repo; keep LICENSE/NOTICE files |
+| **Apache Felix** | various | Apache-2.0 | Include license text |
+| **Substance** | (bundled) | BSD-3-Clause | Attribution |
+| **OpenCV** | 4.5.1-dcm | Apache-2.0 | Include license text |
+| **Jackson** | 2.12.3 | Apache-2.0 | Include license text |
+| **JAXB-OSGi** | 2.3.2 | CDDL-1.0 or GPL-2.0 | Include license text |
+| **Jakarta.json** | 1.1.6 | EPL-2.0 or GPL-2.0 | Include license text |
+| **SLF4J** | 1.7.30 | MIT | Attribution |
+| **Docking Frames** | 1.1.3p1 | LGPL-2.1 or BSD | Attribution |
+| **Launch4j wrapper** | (exe shell) | MIT + BSD-3 | Attribution |
+| **WebView2 SDK** | (app only, not on DVD) | MIT | Attribution |
+
+### License Files on Disc
+
+JRE license files are automatically included on every burned DVD:
+```
+jre/windows/LICENSE              ← GNU GPL-2.0 full text
+jre/windows/ASSEMBLY_EXCEPTION   ← OpenJDK Classpath Exception
+jre/windows/NOTICE               ← Eclipse Temurin notice
+jre/windows/THIRD_PARTY_README   ← All JRE bundled library licenses (3,371 lines)
+jre/windows-x64/                 ← Same files for x64 JRE
+```
+
+### Source Code Pointers (GPL compliance)
+
+- **Adoptium JDK 8u**: https://github.com/adoptium/jdk8u
+- **Weasis**: https://github.com/nroduit/Weasis (upstream)
+- **Apache Felix**: https://github.com/apache/felix-dev
+
+### Compliance Notes
+
+1. **JRE Classpath Exception**: Allows linking with non-GPL code (our scripts, Weasis bundles). No source distribution required on disc — pointing to upstream repo is sufficient.
+2. **Weasis dual license**: We choose Apache-2.0 (simpler, no source disclosure required). Apache-2.0 requires: include license text, retain NOTICE files, state changes.
+3. **LGPL (Docking Frames)**: Bundled as separate JAR in bundle/ — user can theoretically replace it. LGPL allows dynamic linking without GPL contamination.
+4. **Our custom code**: launcher.cs, splash-loader.ps1, burn.ps1, start-weasis.bat — no OSS license needed. Not derivative works of any GPL component.
+5. **WebView2 SDK**: MIT licensed, used only in PACS Burner desktop app (not on DVD).
+
+### TODO
+- Add "Open Source Attribution" section to `templates/README.html` with component list + source links
 
 ## Current Status (2026-02-21)
 ### WORKING:
@@ -415,17 +465,68 @@ Created a tiny C# program that launches `start-weasis.bat` when clicked. Compile
 - Test MPR 3D with 64-bit JRE (-Xmx2048m)
 - Add license attributions to README.html
 
-### NEXT STEPS:
-- Add license/attribution section to README.html
-- Create .gitignore (tools/ folder excluded)
-- Test on another computer (clean environment, no .weasis cache)
+### SESSION 2026-02-23 (PACS Burner application):
 
-## Future Plans (user's vision)
-Build a complete application that:
-- Fetches patient list from PACS
-- Downloads ZIPs automatically
-- Provides simple UI for burn workflow
-Current phase: core burn script (BAT + PowerShell).
+#### PACS Burner — PowerShell WPF + WebView2 desktop app
+
+**Purpose**: Replaces manual workflow (browser -> download ZIP -> drag to burn.bat) with integrated app.
+
+**Architecture**:
+- `app/pacs-burner.bat` → `app/launch.vbs` → `app/pacs-burner.ps1` (no CMD window)
+- PowerShell WPF window with embedded WebView2 (Chromium browser)
+- Dark theme (#1E1E1E), toolbar + browser + status bar layout
+- Settings stored in `app/settings.json` (passwords DPAPI-encrypted)
+- WebView2 user data (cookies/cache) in `%APPDATA%\WeasisBurn\WebView2Data\`
+- Downloads intercepted to `downloads/` folder
+
+**Files created:**
+- `app/pacs-burner.ps1` — main application (~860 lines)
+- `app/pacs-burner.bat` — launcher (calls launch.vbs)
+- `app/launch.vbs` — VBS wrapper to hide CMD window (Run ..., 0, False)
+- `app/settings.json` — auto-created on first run
+
+**Files modified:**
+- `scripts/setup.ps1` — added Step 3: WebView2 SDK NuGet download
+- `CLAUDE.md` — licensing section, PACS Burner documentation
+
+**WebView2 SDK** (in `tools/webview2/`, downloaded by setup.ps1):
+- `Microsoft.Web.WebView2.Core.dll` (635 KB, net462)
+- `Microsoft.Web.WebView2.Wpf.dll` (81 KB, net462)
+- `WebView2Loader.dll` (157 KB, native x64)
+- Source: NuGet package `Microsoft.Web.WebView2` (MIT license)
+- Requires: WebView2 Runtime (pre-installed with Edge Chromium on Win 10/11)
+
+**Key features:**
+1. **Network selector** — External (imagistica.scr.md) / Internal (192.168.22.10) with custom networks
+2. **Auto-login** — React-compatible JS injection using native HTMLInputElement setter
+3. **Auto-unlock** — detects `.panel.panel-danger` lock screen, fills password
+4. **Auto "Exclude Viewer"** — MutationObserver injected via DOMContentLoaded
+5. **Download interception** — ZIP files redirected to `downloads/`, progress in status bar
+6. **BURN button** — launches burn.ps1 with downloaded ZIP
+
+**Critical PowerShell + WebView2 patterns:**
+- `$args` is reserved in PowerShell — all event handlers MUST use `param($s, $e)` not `param($sender, $args)`
+- Async init: `CreateAsync()` + DispatcherTimer polling (ContinueWith doesn't work in PS)
+- `CoreWebView2InitializationCompleted` event fires on UI thread (safe for WPF)
+- React value injection: `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set` + `dispatchEvent(new Event('input', {bubbles: true}))` — direct `.value =` is ignored by React
+- CMD window hiding: VBS wrapper with `WScript.Shell.Run ..., 0, False`
+
+**PACS website details (Biotronics 3D):**
+- React SPA with MobX state management, Bootstrap 3
+- Login: `#login` form, `#username`, `#password`, `button.login-button`
+- Lock screen: `.panel.panel-danger`, `#password`, `button.login-button` ("Deblocare")
+- Studies list: `input.omnisearch-input`, `.glyphicon-download` button
+- Download modal: `.modal-dialog`, checkboxes in `.form-group label.checkbox-inline`
+- "Exclude Viewer" = 4th checkbox, "Descarcare" = `.btn.btn-primary`
+- Finished: `.well.well-sm h5` text "Finalizat" (green `rgb(92,184,92)`)
+- F5 = session lost (re-login required), auto-lock after inactivity
+
+### NEXT STEPS:
+- Add "Open Source Attribution" section to `templates/README.html`
+- Create .gitignore (tools/, downloads/ excluded)
+- Test on another computer (clean environment, no .weasis cache)
+- Test PACS Burner: auto-login, download interception, burn integration
+- Test auto-unlock on locked session
 
 ## Hardware
 - Work: internal DVD writer

@@ -8,7 +8,9 @@
 
 param(
     [Parameter(Mandatory=$true)]
-    [string]$ZipPath
+    [string]$ZipPath,
+    [string]$DriveID = "",
+    [int]$BurnSpeed = 4
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +22,7 @@ $TempRoot       = Join-Path $env:TEMP "WeasisBurn"
 $DiscStaging    = Join-Path $TempRoot "disc"
 $ContentDir     = Join-Path $DiscStaging "Weasis"     # subfolder on disc for all content
 $TemplatesDir   = Join-Path $ProjectRoot "templates"
-$BurnSpeed      = 4  # slower = more compatible and reliable
+$script:burnSuccess = $false
 
 # --- Functions ---
 function Write-Status($msg) {
@@ -66,6 +68,111 @@ function Clear-Staging {
     New-Item -ItemType Directory -Path $DiscStaging -Force | Out-Null
     New-Item -ItemType Directory -Path $ContentDir -Force | Out-Null
     Write-Ok "Folder staging creat: $DiscStaging (content in Weasis/)"
+}
+
+function Read-DicomPatientInfo {
+    param([string]$FilePath)
+
+    $result = @{ PatientName = ""; StudyDate = "" }
+
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($FilePath)
+        if ($bytes.Length -lt 140) { return $result }
+
+        # Verify DICM magic at offset 128
+        $magic = [System.Text.Encoding]::ASCII.GetString($bytes, 128, 4)
+        if ($magic -ne "DICM") { return $result }
+
+        $pos = 132  # Start after preamble + magic
+        $maxPos = [Math]::Min($bytes.Length, 16384)  # Scan first 16 KB
+        $longVRs = @("OB","OD","OF","OL","OW","SQ","UC","UN","UR","UT")
+
+        while ($pos + 8 -le $maxPos) {
+            # Read tag: group (2 LE) + element (2 LE)
+            $group   = [BitConverter]::ToUInt16($bytes, $pos)
+            $element = [BitConverter]::ToUInt16($bytes, $pos + 2)
+            $pos += 4
+
+            # Read VR (2 ASCII chars)
+            $vr = [System.Text.Encoding]::ASCII.GetString($bytes, $pos, 2)
+            $pos += 2
+
+            # Determine value length
+            if ($longVRs -contains $vr) {
+                $pos += 2  # skip 2 reserved bytes
+                if ($pos + 4 -gt $maxPos) { break }
+                $valLen = [BitConverter]::ToUInt32($bytes, $pos)
+                $pos += 4
+            } else {
+                if ($pos + 2 -gt $maxPos) { break }
+                $valLen = [BitConverter]::ToUInt16($bytes, $pos)
+                $pos += 2
+            }
+
+            # Undefined length (0xFFFFFFFF) -- skip (sequence)
+            if ($valLen -eq 0xFFFFFFFF -or $valLen -lt 0) { break }
+
+            $valStart = $pos
+            $pos += $valLen
+
+            if ($pos -gt $maxPos) { break }
+
+            # Extract target tags
+            if ($group -eq 0x0008 -and $element -eq 0x0020 -and $valLen -gt 0) {
+                # StudyDate (DA): YYYYMMDD
+                $result.StudyDate = [System.Text.Encoding]::ASCII.GetString($bytes, $valStart, $valLen).Trim()
+            }
+            elseif ($group -eq 0x0010 -and $element -eq 0x0010 -and $valLen -gt 0) {
+                # PatientName (PN): FAMILY^GIVEN^MIDDLE^PREFIX^SUFFIX
+                $result.PatientName = [System.Text.Encoding]::ASCII.GetString($bytes, $valStart, $valLen).Trim()
+            }
+
+            # Stop early if both found
+            if ($result.PatientName -and $result.StudyDate) { break }
+
+            # Stop scanning after group 0x0010 (tags are in order)
+            if ($group -gt 0x0010) { break }
+        }
+    } catch {
+        # Silent fail -- fallback to generic label
+    }
+    return $result
+}
+
+function Format-DiscLabel {
+    param([string]$PatientName, [string]$StudyDate)
+
+    $name = ""
+    $date = ""
+
+    # Format patient name: FAMILY^GIVEN -> FAMILY GIVEN
+    if ($PatientName) {
+        $name = ($PatientName -replace '\^', ' ').Trim()
+        $name = $name.ToUpper()
+    }
+
+    # Format study date: YYYYMMDD -> DD/MM/YYYY
+    if ($StudyDate -and $StudyDate.Length -ge 8) {
+        $yyyy = $StudyDate.Substring(0, 4)
+        $mm   = $StudyDate.Substring(4, 2)
+        $dd   = $StudyDate.Substring(6, 2)
+        $date = "$dd/$mm/$yyyy"
+    }
+
+    if ($name -and $date) {
+        $label = "$name $date"
+    } elseif ($name) {
+        $label = $name
+    } else {
+        $label = "Weasis DICOM"
+    }
+
+    # Truncate to 32 chars (ISO 9660 safe)
+    if ($label.Length -gt 32) {
+        $label = $label.Substring(0, 32).Trim()
+    }
+
+    return $label
 }
 
 function Expand-PatientZip {
@@ -251,7 +358,7 @@ function Build-LauncherWrapper {
     # NOTE: IconLocation intentionally NOT set. Windows .lnk requires absolute path
     # to an existing file on the local HDD for icon resolution. On DVD with unknown
     # drive letter, no absolute path works. Tested: relative paths, ExtraData patching,
-    # ExtraData removal — none work on optical/mounted media. Disc icon is set via
+    # ExtraData removal -- none work on optical/mounted media. Disc icon is set via
     # autorun.inf (icon=Weasis\weasis.ico) which DOES work.
     $lnkPath = Join-Path $DiscStaging "Weasis Viewer.lnk"
     try {
@@ -330,6 +437,17 @@ function Select-OpticalDrive {
         }
     }
 
+    # If DriveID provided (from GUI settings), use it directly
+    if ($DriveID) {
+        foreach ($d in $drives) {
+            if ($d.ID -eq $DriveID) {
+                Write-Ok "DVD Writer (selectat din setari): $($d.Vendor) $($d.Product) ($($d.Letter))"
+                return $d
+            }
+        }
+        Write-Host "    Drive-ul salvat in setari nu mai este disponibil, caut altul..." -ForegroundColor Yellow
+    }
+
     if ($drives.Count -eq 1) {
         # Only one drive - use it automatically
         $sel = $drives[0]
@@ -390,7 +508,7 @@ function Burn-ToDisc {
         # Create file system image - ISO 9660 + Joliet (critical for compatibility!)
         $fsImage = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
         $fsImage.FileSystemsToCreate = 3  # FsiFileSystemJoliet (2) + FsiFileSystemISO9660 (1) = 3
-        $fsImage.VolumeName = "Weasis DICOM"
+        $fsImage.VolumeName = if ($script:discLabel) { $script:discLabel } else { "Weasis DICOM" }
 
         # Set media capacity from actual disc (critical! default is CD-sized ~700 MB)
         $fsImage.FreeMediaBlocks = $discFormat.TotalSectorsOnMedia
@@ -405,13 +523,13 @@ function Burn-ToDisc {
         $result = $fsImage.CreateResultImage()
         $stream = $result.ImageStream
 
-        # Set burn speed (slower = more reliable for medical data)
-        # Speed values: 1x DVD = 1385 KB/s
-        # We use 4x = 5540 sectors/second for reliability
+        # Set burn speed (1x DVD = 1385 KB/s)
+        $speedKBs = $BurnSpeed * 1385
+        Write-Host "    Viteza: ${BurnSpeed}x ($speedKBs KB/s)" -ForegroundColor Gray
         try {
-            $discFormat.SetWriteSpeed(5540, $false)
+            $discFormat.SetWriteSpeed($speedKBs, $false)
         } catch {
-            Write-Host "    Nu am putut seta viteza, folosesc viteza implicita." -ForegroundColor Yellow
+            Write-Host "    Nu am putut seta viteza ${BurnSpeed}x, folosesc viteza implicita." -ForegroundColor Yellow
         }
 
         # Burn!
@@ -422,6 +540,7 @@ function Burn-ToDisc {
         $recorder.EjectMedia()
 
         Write-Ok "DISC ARDS CU SUCCES!"
+        $script:burnSuccess = $true
         Write-Host ""
         Write-Host "    Discul a fost ejectat. Poti sa-l folosesti." -ForegroundColor Green
 
@@ -451,6 +570,16 @@ function Cleanup {
         }
     }
     Write-Ok "Curat"
+
+    # Delete source ZIP after successful burn
+    if ($script:burnSuccess -and (Test-Path $ZipPath)) {
+        try {
+            Remove-Item -Force $ZipPath
+            Write-Ok "ZIP-ul sters: $(Split-Path -Leaf $ZipPath)"
+        } catch {
+            Write-Host "    Nu am putut sterge ZIP-ul: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
 }
 
 # ============================================================================
@@ -468,6 +597,40 @@ $extractedDir = Expand-PatientZip -Zip $ZipPath
 
 # Step 4: Copy DICOM files to staging with proper structure
 Copy-DicomToStaging -ExtractedDir $extractedDir
+
+# Step 4b: Extract patient info from DICOM for disc label
+$script:discLabel = "Weasis DICOM"
+$allDcmForLabel = Get-ChildItem -Path $ContentDir -Recurse -File -Include "*.dcm","*.DCM"
+if ($allDcmForLabel) {
+    # Collect unique patients (by PatientName) - check up to 20 files from different folders
+    $uniquePatients = @{}
+    $foldersChecked = @{}
+    foreach ($dcmFile in $allDcmForLabel) {
+        $folder = $dcmFile.DirectoryName
+        if ($foldersChecked.ContainsKey($folder)) { continue }
+        $foldersChecked[$folder] = $true
+        $info = Read-DicomPatientInfo -FilePath $dcmFile.FullName
+        if ($info.PatientName) {
+            $key = $info.PatientName.ToUpper().Trim()
+            if (-not $uniquePatients.ContainsKey($key)) {
+                $uniquePatients[$key] = $info
+            }
+        }
+        if ($uniquePatients.Count -gt 1) { break }  # no need to check more
+        if ($foldersChecked.Count -ge 20) { break }
+    }
+
+    if ($uniquePatients.Count -gt 1) {
+        $script:discLabel = "Multiple"
+        Write-Ok "Nume disc: Multiple ($($uniquePatients.Count) pacienti)"
+    } elseif ($uniquePatients.Count -eq 1) {
+        $info = $uniquePatients.Values | Select-Object -First 1
+        $script:discLabel = Format-DiscLabel -PatientName $info.PatientName -StudyDate $info.StudyDate
+        Write-Ok "Nume disc: $($script:discLabel)"
+    }
+} else {
+    Write-Host "    Nu am gasit fisiere .dcm -- folosesc nume generic." -ForegroundColor Yellow
+}
 
 # Step 5: Copy Weasis portable with JRE
 Copy-WeasisToStaging

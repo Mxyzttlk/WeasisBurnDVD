@@ -24,5 +24,83 @@
         No installation is required. If the viewer is slow to load from disc, you may copy the entire
         disc contents to a local folder and run from there for better performance.
     </div>
+
+    <hr style="margin: 32px 0; border: none; border-top: 1px solid #ccc;">
+
+    <h2>Open Source Software Notice</h2>
+    <p>
+        This disc uses exclusively open-source software to display DICOM medical images.
+        All components are freely redistributable under their respective licenses.
+        No proprietary software is included.
+    </p>
+
+    <h3>Components</h3>
+    <table style="width:100%; border-collapse: collapse; font-size: 14px;">
+        <tr style="background: #f0f0f0;">
+            <th style="text-align:left; padding: 6px; border: 1px solid #ddd;">Component</th>
+            <th style="text-align:left; padding: 6px; border: 1px solid #ddd;">Version</th>
+            <th style="text-align:left; padding: 6px; border: 1px solid #ddd;">License</th>
+        </tr>
+        <tr>
+            <td style="padding: 6px; border: 1px solid #ddd;">Weasis DICOM Viewer</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">3.7.1</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">Apache License 2.0</td>
+        </tr>
+        <tr style="background: #f9f9f9;">
+            <td style="padding: 6px; border: 1px solid #ddd;">Eclipse Temurin JRE (Java Runtime)</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">8 (x86 + x64)</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">GPL-2.0 with Classpath Exception</td>
+        </tr>
+        <tr>
+            <td style="padding: 6px; border: 1px solid #ddd;">Apache Felix (OSGi Framework)</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">various</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">Apache License 2.0</td>
+        </tr>
+        <tr style="background: #f9f9f9;">
+            <td style="padding: 6px; border: 1px solid #ddd;">OpenCV (Image Processing)</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">4.5.1</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">Apache License 2.0</td>
+        </tr>
+        <tr>
+            <td style="padding: 6px; border: 1px solid #ddd;">Substance (Look &amp; Feel)</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">&mdash;</td>
+            <td style="padding: 6px; border: 1px solid #ddd;">BSD 3-Clause</td>
+        </tr>
+    </table>
+
+    <h3>Modifications</h3>
+    <p>
+        The following modifications were made to the original Weasis Portable distribution
+        to enable reliable playback from optical media (DVD/CD):
+    </p>
+    <ul>
+        <li><strong>Custom launcher script</strong> (<code>start-weasis.bat</code>) &mdash;
+            replaces the original Launch4j wrapper to support the disc folder layout,
+            auto-detect 32/64-bit architecture, and select the appropriate Java Runtime.</li>
+        <li><strong>Dual JRE bundling</strong> &mdash; both 32-bit and 64-bit Java Runtimes
+            are included for maximum compatibility across Windows systems.</li>
+        <li><strong>Fast-launch mechanism</strong> &mdash; copies viewer files to a local
+            temporary folder before launch, avoiding slow random reads from optical media.</li>
+        <li><strong>DICOMDIR excluded</strong> &mdash; the viewer scans the DICOM folder
+            directly, which is more reliable than the path-dependent DICOMDIR index.</li>
+    </ul>
+    <p>
+        These are launcher and packaging changes only. The Weasis viewer application itself,
+        all Java libraries, and the Java Runtime are unmodified original distributions.
+    </p>
+
+    <h3>Source Code</h3>
+    <p>
+        Source code for all open-source components is available at:
+    </p>
+    <ul>
+        <li>Weasis: <a href="https://github.com/nroduit/Weasis">github.com/nroduit/Weasis</a></li>
+        <li>Eclipse Temurin JRE: <a href="https://github.com/adoptium/jdk8u">github.com/adoptium/jdk8u</a></li>
+        <li>Apache Felix: <a href="https://github.com/apache/felix-dev">github.com/apache/felix-dev</a></li>
+    </ul>
+    <p style="font-size: 12px; color: #888; margin-top: 8px;">
+        Full JRE third-party license documentation is available in
+        <code>jre/windows/THIRD_PARTY_README</code> on this disc.
+    </p>
 </body>
 </html>

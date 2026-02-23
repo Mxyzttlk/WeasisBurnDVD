@@ -1,5 +1,5 @@
 # ============================================================================
-# Setup Script - Downloads Weasis Portable + JRE
+# Setup Script - Downloads Weasis Portable + JRE + WebView2 SDK
 # Run this ONCE before first burn
 # ============================================================================
 
@@ -242,7 +242,112 @@ if (Test-Path (Join-Path $jreWindowsX64Dir "bin\java.exe")) {
 }
 
 # ============================================================================
-# Step 3: Verify everything
+# Step 3: Download WebView2 SDK (for PACS Burner app)
+# ============================================================================
+
+$WebView2Dir = Join-Path $ToolsDir "webview2"
+$wv2CoreDll  = Join-Path $WebView2Dir "Microsoft.Web.WebView2.Core.dll"
+$wv2WpfDll   = Join-Path $WebView2Dir "Microsoft.Web.WebView2.Wpf.dll"
+$wv2Loader   = Join-Path $WebView2Dir "WebView2Loader.dll"
+
+if ((Test-Path $wv2CoreDll) -and (Test-Path $wv2WpfDll) -and (Test-Path $wv2Loader)) {
+    Write-Ok "WebView2 SDK deja instalat"
+} else {
+    Write-Status "Descarc WebView2 SDK (NuGet package)..."
+
+    $wv2NugetUrl = "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2"
+    $wv2ZipPath  = Join-Path $ToolsDir "webview2.nupkg.zip"
+
+    try {
+        Download-File -Url $wv2NugetUrl -OutFile $wv2ZipPath
+    } catch {
+        Write-Host "    Descarcare automata esuata." -ForegroundColor Yellow
+        Write-Host "    Descarca manual de la: https://www.nuget.org/packages/Microsoft.Web.WebView2" -ForegroundColor Yellow
+        Write-Host "    (Click 'Download package' pe pagina)" -ForegroundColor Yellow
+        Write-Host ""
+        Read-Host "    Salveaza fisierul .nupkg si apasa ENTER"
+
+        $wv2Downloaded = Get-ChildItem -Path (Join-Path $env:USERPROFILE "Downloads") -Filter "microsoft.web.webview2*.nupkg" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($wv2Downloaded) {
+            Copy-Item -Path $wv2Downloaded.FullName -Destination $wv2ZipPath -Force
+        } else {
+            $customPath = Read-Host "    Introdu calea catre fisierul .nupkg descarcat"
+            $customPath = $customPath.Trim('"', "'", ' ')
+            if (Test-Path $customPath) {
+                Copy-Item -Path $customPath -Destination $wv2ZipPath -Force
+            } else {
+                Write-Host "    [EROARE] Fisierul nu exista." -ForegroundColor Red
+                exit 1
+            }
+        }
+    }
+
+    Write-Ok "WebView2 NuGet descarcat: $('{0:N1}' -f ((Get-Item $wv2ZipPath).Length / 1MB)) MB"
+
+    Write-Status "Extrag WebView2 SDK..."
+    $wv2TempDir = Join-Path $ToolsDir "webview2-temp"
+    # NuGet .nupkg is a ZIP file - rename extension for Expand-Archive
+    Expand-Archive -Path $wv2ZipPath -DestinationPath $wv2TempDir -Force
+
+    New-Item -ItemType Directory -Path $WebView2Dir -Force | Out-Null
+
+    # Extract the 3 required DLLs from NuGet package structure:
+    # lib/net462/Microsoft.Web.WebView2.Core.dll
+    # lib/net462/Microsoft.Web.WebView2.Wpf.dll
+    # runtimes/win-x64/native/WebView2Loader.dll
+    $coreSrc = Get-ChildItem -Path $wv2TempDir -Recurse -Filter "Microsoft.Web.WebView2.Core.dll" |
+        Where-Object { $_.DirectoryName -match "net45|net462|netcoreapp" } |
+        Sort-Object { if ($_.DirectoryName -match "net462") { 0 } elseif ($_.DirectoryName -match "net45") { 1 } else { 2 } } |
+        Select-Object -First 1
+
+    $wpfSrc = Get-ChildItem -Path $wv2TempDir -Recurse -Filter "Microsoft.Web.WebView2.Wpf.dll" |
+        Where-Object { $_.DirectoryName -match "net45|net462|netcoreapp" } |
+        Sort-Object { if ($_.DirectoryName -match "net462") { 0 } elseif ($_.DirectoryName -match "net45") { 1 } else { 2 } } |
+        Select-Object -First 1
+
+    $loaderSrc = Get-ChildItem -Path $wv2TempDir -Recurse -Filter "WebView2Loader.dll" |
+        Where-Object { $_.DirectoryName -match "x64" } |
+        Select-Object -First 1
+
+    $extractOk = $true
+    if ($coreSrc) {
+        Copy-Item -Path $coreSrc.FullName -Destination $wv2CoreDll -Force
+        Write-Ok "Microsoft.Web.WebView2.Core.dll"
+    } else {
+        Write-Host "    [EROARE] Nu am gasit Core.dll in NuGet package" -ForegroundColor Red
+        $extractOk = $false
+    }
+
+    if ($wpfSrc) {
+        Copy-Item -Path $wpfSrc.FullName -Destination $wv2WpfDll -Force
+        Write-Ok "Microsoft.Web.WebView2.Wpf.dll"
+    } else {
+        Write-Host "    [EROARE] Nu am gasit Wpf.dll in NuGet package" -ForegroundColor Red
+        $extractOk = $false
+    }
+
+    if ($loaderSrc) {
+        Copy-Item -Path $loaderSrc.FullName -Destination $wv2Loader -Force
+        Write-Ok "WebView2Loader.dll (x64)"
+    } else {
+        Write-Host "    [EROARE] Nu am gasit WebView2Loader.dll in NuGet package" -ForegroundColor Red
+        $extractOk = $false
+    }
+
+    # Clean up
+    Remove-Item -Path $wv2ZipPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $wv2TempDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    if ($extractOk) {
+        $wv2Size = (Get-ChildItem -Path $WebView2Dir -File | Measure-Object -Property Length -Sum).Sum
+        Write-Ok "WebView2 SDK extras: $('{0:N1}' -f ($wv2Size / 1MB)) MB"
+    } else {
+        Write-Host "    [EROARE] Extractia WebView2 SDK a esuat." -ForegroundColor Red
+    }
+}
+
+# ============================================================================
+# Step 4: Verify everything
 # ============================================================================
 
 Write-Status "Verificare finala..."
@@ -255,6 +360,9 @@ $checks = @(
     @{ Path = (Join-Path $WeasisDir "bundle"); Name = "bundle/ folder" },
     @{ Path = (Join-Path $jreWindowsDir "bin\java.exe"); Name = "jre/windows/bin/java.exe (x86)" },
     @{ Path = (Join-Path $jreWindowsX64Dir "bin\java.exe"); Name = "jre/windows-x64/bin/java.exe (x64)" },
+    @{ Path = (Join-Path $ToolsDir "webview2\Microsoft.Web.WebView2.Core.dll"); Name = "webview2/Core.dll (WebView2 SDK)" },
+    @{ Path = (Join-Path $ToolsDir "webview2\Microsoft.Web.WebView2.Wpf.dll"); Name = "webview2/Wpf.dll (WebView2 SDK)" },
+    @{ Path = (Join-Path $ToolsDir "webview2\WebView2Loader.dll"); Name = "webview2/WebView2Loader.dll (native)" },
     @{ Path = (Join-Path $ProjectRoot "templates\autorun.inf"); Name = "templates/autorun.inf" },
     @{ Path = (Join-Path $ProjectRoot "templates\README.html"); Name = "templates/README.html" },
     @{ Path = (Join-Path $ProjectRoot "burn.bat"); Name = "burn.bat" }
@@ -283,9 +391,9 @@ if ($allGood) {
     Write-Host "  SETUP COMPLET!" -ForegroundColor Green
     Write-Host "============================================" -ForegroundColor Green
     Write-Host ""
-    Write-Host "  Acum poti folosi burn.bat:" -ForegroundColor White
-    Write-Host "    1. Trage un ZIP peste burn.bat" -ForegroundColor White
-    Write-Host "    2. Sau ruleaza: burn.bat cale\catre\fisier.zip" -ForegroundColor White
+    Write-Host "  Poti folosi:" -ForegroundColor White
+    Write-Host "    burn.bat       - Trage un ZIP peste el (sau: burn.bat cale\fisier.zip)" -ForegroundColor White
+    Write-Host "    app\pacs-burner.bat - Aplicatia PACS Burner cu browser integrat" -ForegroundColor White
     Write-Host ""
 } else {
     Write-Host ""
