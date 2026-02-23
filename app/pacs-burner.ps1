@@ -19,6 +19,7 @@ $ToolsDir     = Join-Path $ProjectRoot "tools"
 $DownloadsDir = Join-Path $ProjectRoot "downloads"
 $WebView2Dir  = Join-Path $ToolsDir "webview2"
 $BurnScript   = Join-Path $ProjectRoot "scripts\burn.ps1"
+$BurnGuiScript = Join-Path $ProjectRoot "scripts\burn-gui.ps1"
 
 if (-not $SettingsFile) {
     $SettingsFile = Join-Path $AppDir "settings.json"
@@ -885,16 +886,16 @@ function Start-BurnProcess {
     $bSpeed = if ($script:Settings.burnSpeed) { $script:Settings.burnSpeed } else { 4 }
     $bDrive = $script:Settings.burnDriveId
 
-    $psCmd = "powershell -ExecutionPolicy Bypass -File `"$BurnScript`" -ZipPath `"$($script:currentZipPath)`" -BurnSpeed $bSpeed -AutoConfirm"
+    # Build PowerShell arguments for burn GUI
+    $psArgs = "-sta -nologo -noprofile -ExecutionPolicy Bypass -File `"$BurnGuiScript`" -ZipPath `"$($script:currentZipPath)`" -BurnSpeed $bSpeed -AutoConfirm"
     if ($bDrive) {
-        $psCmd += " -DriveID `"$bDrive`""
+        $psArgs += " -DriveID `"$bDrive`""
     }
     if ($script:Settings.simulateOnly) {
-        $psCmd += " -SimulateOnly"
+        $psArgs += " -SimulateOnly"
     }
-    # cmd /c with pause — keeps window open for user, then closes cleanly
-    # -WorkingDirectory prevents Windows from restoring app/ folder in Explorer on CMD exit
-    $script:burnProc = Start-Process cmd -ArgumentList "/c", "chcp 65001 >nul & title DICOM DVD Burn & $psCmd & echo. & pause" -WorkingDirectory $ProjectRoot -PassThru
+    # Launch WPF burn GUI (replaces CMD window)
+    $script:burnProc = Start-Process powershell -ArgumentList $psArgs -WorkingDirectory $ProjectRoot -PassThru
 
     # Monitor burn process — when CMD closes, bring window to foreground + reload page
     $script:burnMonitorTimer = [System.Windows.Threading.DispatcherTimer]::new()

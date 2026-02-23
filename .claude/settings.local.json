@@ -58,7 +58,8 @@
       "Bash(powershell.exe -ExecutionPolicy Bypass -NoProfile -Command \"& { $tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile\\(''E:\\\\Weasis Burn\\\\app\\\\pacs-burner.ps1'', [ref]$tokens, [ref]$errors\\); foreach \\($e in $errors\\) { Write-Host \\(''Line '' + $e.Extent.StartLineNumber + '': '' + $e.Message\\) } }\")",
       "Bash(powershell.exe -ExecutionPolicy Bypass -NoProfile -File \"E:\\\\Weasis Burn\\\\scripts\\\\check-syntax.ps1\")",
       "Bash(powershell.exe -ExecutionPolicy Bypass -NoProfile -File \"E:\\\\Weasis Burn\\\\scripts\\\\fix-encoding.ps1\" \"E:\\\\Weasis Burn\\\\templates\\\\splash-loader.ps1\")",
-      "Bash(powershell.exe -sta -ExecutionPolicy Bypass -File \"E:\\\\Weasis Burn\\\\scripts\\\\test-screens.ps1\" -Screen \"os-block\")"
+      "Bash(powershell.exe -sta -ExecutionPolicy Bypass -File \"E:\\\\Weasis Burn\\\\scripts\\\\test-screens.ps1\" -Screen \"os-block\")",
+      "Bash(xxd:*)"
     ]
   }
 }
