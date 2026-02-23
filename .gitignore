@@ -1,0 +1,8 @@
+# Downloaded binaries (re-created by setup.bat)
+tools/
+
+# Downloaded DICOM ZIPs (runtime data)
+downloads/
+
+# User settings with encrypted passwords (DPAPI - user-specific)
+app/settings.json
