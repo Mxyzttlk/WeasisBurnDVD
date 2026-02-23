@@ -51,7 +51,10 @@
       "Bash(powershell.exe -nologo -noprofile -EncodedCommand \"JABiAHkAdABlAHMAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAEkATwAuAEYAaQBsAGUAXQA6ADoAUgBlAGEAZABBAGwAbABCAHkAdABlAHMAKAAnAEUAOgBcAFcAZQBhAHMAaQBzACAAQgB1AHIAbgBcAGEAcABwAFwAcABhAGMAcwAtAGIAdQByAG4AZQByAC4AcABzADEAJwApADsAVwByAGkAdABlAC0ASABvAHMAdAAgACIAQgBPAE0AOgAgACQAKAAkAGIAeQB0AGUAcwBbADAAXQApACwAJAAoACQAYgB5AHQAZQBzAFsAMQBdACkALAAkACgAJABiAHkAdABlAHMAWwAyAF0AKQAiAA==\")",
       "Bash(powershell.exe -nologo -noprofile -EncodedCommand \"JAB0AD0AJABuAHUAbABsADsAJABlAD0AJABuAHUAbABsADsAWwB2AG8AaQBkAF0AWwBTAHkAcwB0AGUAbQAuAE0AYQBuAGEAZwBlAG0AZQBuAHQALgBBAHUAdABvAG0AYQB0AGkAbwBuAC4ATABhAG4AZwB1AGEAZwBlAC4AUABhAHIAcwBlAHIAXQA6ADoAUABhAHIAcwBlAEYAaQBsAGUAKAAnAEUAOgBcAFcAZQBhAHMAaQBzACAAQgB1AHIAbgBcAGEAcABwAFwAcABhAGMAcwAtAGIAdQByAG4AZQByAC4AcABzADEAJwAsAFsAcgBlAGYAXQAkAHQALABbAHIAZQBmAF0AJABlACkAOwBXAHIAaQB0AGUALQBIAG8AcwB0ACAAIgBFAHIAcgBvAHIAcwA6ACAAJAAoACQAZQAuAEMAbwB1AG4AdAApACIA\")",
       "Bash(powershell.exe -NoProfile:*)",
-      "Bash(ls -la \"E:\\\\Weasis Burn\\\\tools\"\" 2>/dev/null || echo \"tools/ folder not found \")"
+      "Bash(ls -la \"E:\\\\Weasis Burn\\\\tools\"\" 2>/dev/null || echo \"tools/ folder not found \")",
+      "WebFetch(domain:dicom.offis.de)",
+      "WebFetch(domain:support.dcmtk.org)",
+      "WebFetch(domain:forum.dcmtk.org)"
     ]
   }
 }

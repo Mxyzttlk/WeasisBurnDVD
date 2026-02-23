@@ -402,13 +402,82 @@ if (-not $wv2RuntimeFound) {
 }
 
 # ============================================================================
+# Step 3c: Download dcmtk (for DICOMDIR generation)
+# ============================================================================
+# dcmmkdir.exe creates a DICOMDIR index file required by medical workstations
+# (Siemens, GE, Philips) to recognize DICOM studies on DVD media.
+
+$DcmtkDir    = Join-Path $ToolsDir "dcmtk"
+$dcmmkdirExe = Join-Path $DcmtkDir "bin\dcmmkdir.exe"
+
+if (Test-Path $dcmmkdirExe) {
+    Write-Ok "dcmtk deja instalat (dcmmkdir.exe)"
+} else {
+    Write-Status "Descarc dcmtk 3.7.0 (pentru generare DICOMDIR)..."
+
+    $dcmtkUrl     = "https://dicom.offis.de/download/dcmtk/dcmtk370/bin/dcmtk-3.7.0-win64-dynamic.zip"
+    $dcmtkZipPath = Join-Path $ToolsDir "dcmtk.zip"
+
+    Write-Host "    (~9 MB, cateva secunde)" -ForegroundColor Yellow
+
+    try {
+        Download-File -Url $dcmtkUrl -OutFile $dcmtkZipPath
+    } catch {
+        Write-Host "    Descarcare automata esuata. Deschid browserul..." -ForegroundColor Yellow
+        Start-Process "https://dicom.offis.de/en/dcmtk/dcmtk-tools/"
+        Write-Host ""
+        Write-Host "    1. Descarca 'dcmtk-3.7.0-win64-dynamic.zip'" -ForegroundColor White
+        Write-Host "    2. Salveaza in Downloads si apasa ENTER" -ForegroundColor White
+        Write-Host ""
+        Read-Host "    Apasa ENTER cand ai descarcat"
+
+        $dcmtkDownloaded = Get-ChildItem -Path (Join-Path $env:USERPROFILE "Downloads") -Filter "dcmtk*win64*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($dcmtkDownloaded) {
+            Copy-Item -Path $dcmtkDownloaded.FullName -Destination $dcmtkZipPath -Force
+        } else {
+            $customPath = Read-Host "    Introdu calea catre fisierul dcmtk .zip descarcat"
+            $customPath = $customPath.Trim('"', "'", ' ')
+            if (Test-Path $customPath) {
+                Copy-Item -Path $customPath -Destination $dcmtkZipPath -Force
+            } else {
+                Write-Host "    [EROARE] Fisierul nu exista." -ForegroundColor Red
+                exit 1
+            }
+        }
+    }
+
+    Write-Ok "dcmtk descarcat: $('{0:N1}' -f ((Get-Item $dcmtkZipPath).Length / 1MB)) MB"
+
+    Write-Status "Extrag dcmtk..."
+    $dcmtkTempDir = Join-Path $ToolsDir "dcmtk-temp"
+    Expand-Archive -Path $dcmtkZipPath -DestinationPath $dcmtkTempDir -Force
+
+    # ZIP contains a root folder like dcmtk-3.7.0-win64-dynamic/ -- move it
+    $dcmtkRoot = Get-ChildItem -Path $dcmtkTempDir -Directory | Select-Object -First 1
+    if ($dcmtkRoot) {
+        if (Test-Path $DcmtkDir) { Remove-Item -Recurse -Force $DcmtkDir }
+        Move-Item -Path $dcmtkRoot.FullName -Destination $DcmtkDir -Force
+    }
+
+    # Clean up
+    Remove-Item -Path $dcmtkZipPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $dcmtkTempDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    if (Test-Path $dcmmkdirExe) {
+        Write-Ok "dcmtk instalat (dcmmkdir.exe gasit)"
+    } else {
+        Write-Host "    [ATENTIE] dcmmkdir.exe nu a fost gasit dupa extractie." -ForegroundColor Yellow
+        Write-Host "    DICOMDIR nu va fi generat - discul nu va fi recunoscut de statiile medicale." -ForegroundColor Yellow
+    }
+}
+
+# ============================================================================
 # Step 4: Verify everything
 # ============================================================================
 
 Write-Status "Verificare finala..."
 
 $checks = @(
-    @{ Path = (Join-Path $WeasisDir "viewer-win32.exe"); Name = "viewer-win32.exe (launcher)" },
     @{ Path = (Join-Path $WeasisDir "weasis-launcher.jar"); Name = "weasis-launcher.jar" },
     @{ Path = (Join-Path $WeasisDir "felix.jar"); Name = "felix.jar (OSGI framework)" },
     @{ Path = (Join-Path $WeasisDir "conf\config.properties"); Name = "conf/config.properties" },
@@ -418,6 +487,7 @@ $checks = @(
     @{ Path = (Join-Path $ToolsDir "webview2\Microsoft.Web.WebView2.Core.dll"); Name = "webview2/Core.dll (WebView2 SDK)" },
     @{ Path = (Join-Path $ToolsDir "webview2\Microsoft.Web.WebView2.Wpf.dll"); Name = "webview2/Wpf.dll (WebView2 SDK)" },
     @{ Path = (Join-Path $ToolsDir "webview2\WebView2Loader.dll"); Name = "webview2/WebView2Loader.dll (native)" },
+    @{ Path = (Join-Path $ToolsDir "dcmtk\bin\dcmmkdir.exe"); Name = "dcmtk/bin/dcmmkdir.exe (DICOMDIR generator)" },
     @{ Path = (Join-Path $ProjectRoot "templates\autorun.inf"); Name = "templates/autorun.inf" },
     @{ Path = (Join-Path $ProjectRoot "templates\README.html"); Name = "templates/README.html" },
     @{ Path = (Join-Path $ProjectRoot "burn.bat"); Name = "burn.bat" }
