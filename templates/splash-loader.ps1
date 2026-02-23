@@ -75,11 +75,11 @@ function Get-Strings {
                 BtnContinue   = "Continua"
                 BtnClose      = "Inchide"
                 OsWarnTitle   = "Sistemul de operare nu indeplineste cerintele"
-                OsWarnMsg     = "Weasis necesita Windows 10 sau mai nou. Recomandam sa folositi aplicatia RadiAnt pentru vizualizarea imaginilor DICOM."
+                OsWarnMsg     = "Weasis necesita Windows 10 sau mai nou. Recomandam sa folositi aplicatia RadiAnt pentru o experienta optima."
                 RamBlockTitle = "Memorie RAM insuficienta"
-                RamBlockMsg   = "Calculatorul are doar {0} GB RAM. Weasis necesita minim 2 GB. Recomandam sa folositi aplicatia RadiAnt."
+                RamBlockMsg   = "Calculatorul are doar {0} GB RAM. Weasis necesita minim 2 GB. Recomandam sa folositi aplicatia RadiAnt pentru o experienta optima."
                 RamWarnTitle  = "Memorie RAM redusa"
-                RamWarnMsg    = "Calculatorul are doar {0} GB RAM. Weasis poate functiona lent. Recomandam minim 4 GB RAM sau aplicatia RadiAnt."
+                RamWarnMsg    = "Calculatorul are doar {0} GB RAM. Weasis poate functiona lent. Recomandam sa folositi aplicatia RadiAnt pentru o experienta optima."
             }
         }
         "ru" {
@@ -114,11 +114,11 @@ function Get-Strings {
                 BtnContinue   = "Продолжить"
                 BtnClose      = "Закрыть"
                 OsWarnTitle   = "Операционная система не соответствует требованиям"
-                OsWarnMsg     = "Weasis требует Windows 10 или новее. Рекомендуем использовать приложение RadiAnt для просмотра изображений DICOM."
+                OsWarnMsg     = "Weasis требует Windows 10 или новее. Рекомендуем использовать приложение RadiAnt для оптимальной работы."
                 RamBlockTitle = "Недостаточно оперативной памяти"
-                RamBlockMsg   = "На компьютере только {0} ГБ RAM. Weasis требует минимум 2 ГБ. Рекомендуем использовать приложение RadiAnt."
+                RamBlockMsg   = "На компьютере только {0} ГБ RAM. Weasis требует минимум 2 ГБ. Рекомендуем использовать приложение RadiAnt для оптимальной работы."
                 RamWarnTitle  = "Мало оперативной памяти"
-                RamWarnMsg    = "На компьютере только {0} ГБ RAM. Weasis может работать медленно. Рекомендуем минимум 4 ГБ RAM или приложение RadiAnt."
+                RamWarnMsg    = "На компьютере только {0} ГБ RAM. Weasis может работать медленно. Рекомендуем использовать приложение RadiAnt для оптимальной работы."
             }
         }
         default {
@@ -153,11 +153,11 @@ function Get-Strings {
                 BtnContinue   = "Continue"
                 BtnClose      = "Close"
                 OsWarnTitle   = "Operating system does not meet requirements"
-                OsWarnMsg     = "Weasis requires Windows 10 or newer. We recommend using RadiAnt for viewing DICOM images."
+                OsWarnMsg     = "Weasis requires Windows 10 or newer. We recommend using RadiAnt for an optimal experience."
                 RamBlockTitle = "Insufficient RAM"
-                RamBlockMsg   = "This computer has only {0} GB RAM. Weasis requires at least 2 GB. We recommend using RadiAnt."
+                RamBlockMsg   = "This computer has only {0} GB RAM. Weasis requires at least 2 GB. We recommend using RadiAnt for an optimal experience."
                 RamWarnTitle  = "Low RAM"
-                RamWarnMsg    = "This computer has only {0} GB RAM. Weasis may run slowly. We recommend at least 4 GB RAM or using RadiAnt."
+                RamWarnMsg    = "This computer has only {0} GB RAM. Weasis may run slowly. We recommend using RadiAnt for an optimal experience."
             }
         }
     }

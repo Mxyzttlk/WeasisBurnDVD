@@ -176,17 +176,17 @@ if %OS_MAJOR% LSS 10 (
         echo   Sistemul de operare nu indeplineste cerintele.
         echo   Weasis necesita Windows 10 sau mai nou.
         echo   Recomandam sa folositi aplicatia RadiAnt
-        echo   pentru vizualizarea imaginilor DICOM.
+        echo   pentru o experienta optima.
     ) else if "%LANG%"=="ru" (
         echo   Operacionnaya sistema ne sootvetstvuet trebovaniyam.
         echo   Weasis trebuet Windows 10 ili novee.
         echo   Rekomenduem ispol'zovat' RadiAnt
-        echo   dlya prosmotra izobrazhenij DICOM.
+        echo   dlya optimal'noj raboty.
     ) else (
         echo   Operating system does not meet requirements.
         echo   Weasis requires Windows 10 or newer.
         echo   We recommend using RadiAnt
-        echo   for viewing DICOM images.
+        echo   for an optimal experience.
     )
     echo.
     echo   ================================================
@@ -214,15 +214,18 @@ if %RAM_MB% LSS 2048 if %RAM_MB% GTR 0 (
     if "%LANG%"=="ro" (
         echo   [!] Memorie RAM insuficienta: %RAM_MB% MB
         echo   Weasis necesita minim 2 GB RAM.
-        echo   Recomandam sa folositi aplicatia RadiAnt.
+        echo   Recomandam sa folositi aplicatia RadiAnt
+        echo   pentru o experienta optima.
     ) else if "%LANG%"=="ru" (
         echo   [!] Nedostatochno operativnoj pamyati: %RAM_MB% MB
         echo   Weasis trebuet minimum 2 GB RAM.
-        echo   Rekomenduem ispol'zovat' RadiAnt.
+        echo   Rekomenduem ispol'zovat' RadiAnt
+        echo   dlya optimal'noj raboty.
     ) else (
         echo   [!] Insufficient RAM: %RAM_MB% MB
         echo   Weasis requires at least 2 GB RAM.
-        echo   We recommend using RadiAnt.
+        echo   We recommend using RadiAnt
+        echo   for an optimal experience.
     )
     echo   ================================================
     echo.
