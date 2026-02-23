@@ -19,5 +19,5 @@
     "lastNetwork":  1,
     "burnSpeed":  4,
     "burnDriveId":  "\\\\?\\usbstor#cdrom\u0026ven_matshita\u0026prod_dvd-ram_uj862as\u0026rev_1.01#484630302020303431383833\u00260#{53f56308-b6bf-11d0-94f2-00a0c91efb8b}",
-    "simulateOnly":  true
+    "simulateOnly":  false
 }

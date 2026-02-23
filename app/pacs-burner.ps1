@@ -634,14 +634,17 @@ function Setup-WebView2Events {
                     if ($op.State -eq [Microsoft.Web.WebView2.Core.CoreWebView2DownloadState]::Completed) {
                         $sizeMB = [math]::Round((Get-Item $script:currentZipPath).Length / 1MB, 1)
                         $fname = [System.IO.Path]::GetFileName($script:currentZipPath)
-                        $txtZipInfo.Text = "ZIP: $fname ($sizeMB MB) - Gata pentru burn!"
-                        Update-Status "ZIP descarcat cu succes" "#0F9B58"
 
-                        # Auto-burn if triggered from Burn button
-                        if ($script:autoBurnPending) {
-                            $script:autoBurnPending = $false
-                            if ($script:autoBurnTimer) { $script:autoBurnTimer.Stop() }
+                        # Always auto-burn when ZIP download completes (no manual BURN click needed)
+                        $script:autoBurnPending = $false
+                        if ($script:autoBurnTimer) { $script:autoBurnTimer.Stop() }
+                        # Guard: don't start burn if one is already running
+                        if ($script:burnProc -and -not $script:burnProc.HasExited) {
+                            $txtZipInfo.Text = "ZIP: $fname ($sizeMB MB) - Burn deja in curs"
+                            Update-Status "ZIP descarcat, burn deja activ" "#FFA500"
+                        } else {
                             $txtZipInfo.Text = "ZIP: $fname ($sizeMB MB) - Lansez burn..."
+                            Update-Status "ZIP descarcat - pornesc burn..." "#0F9B58"
                             Start-BurnProcess
                         }
                     }
@@ -815,7 +818,7 @@ function Start-PacsDownload {
     #   - No modal yet → keeps polling
     #   - Modal found, checkbox unchecked → clicks checkbox, waits for next tick
     #   - Modal found, checkbox checked → clicks Descarcare
-    #   - Timer stops when DownloadStarting event fires (or timeout 30s)
+    #   - Timer stops when DownloadStarting event fires (or timeout 180s)
     $script:downloadPollCount = 0
 
     $script:downloadPollTimer = [System.Windows.Threading.DispatcherTimer]::new()
@@ -823,13 +826,11 @@ function Start-PacsDownload {
     $script:downloadPollTimer.Add_Tick({
         $script:downloadPollCount++
 
-        # Stop after 30 sec
-        if ($script:downloadPollCount -gt 30) {
+        # Stop after 480 sec / 8 min (PACS server may need time to prepare large ZIP files)
+        if ($script:downloadPollCount -gt 480) {
             $this.Stop()
-            if ($script:autoBurnPending) {
-                $script:autoBurnPending = $false
-                Update-Status "Timeout - descarcarea nu a inceput" "#D32F2F"
-            }
+            # Don't reset autoBurnPending — download may still start later
+            Update-Status "Astept descarcarea de pe PACS..." "#FFA500"
             return
         }
 
