@@ -74,6 +74,8 @@ function Get-Strings {
                 Warn32Msg     = "Se recomanda utilizarea aplicatiei RadiAnt pentru o experienta optima."
                 BtnContinue   = "Continua"
                 BtnClose      = "Inchide"
+                OsWarnTitle   = "Sistemul de operare nu indeplineste cerintele"
+                OsWarnMsg     = "Weasis necesita Windows 10 sau mai nou. Recomandam sa folositi aplicatia RadiAnt pentru vizualizarea imaginilor DICOM."
             }
         }
         "ru" {
@@ -107,6 +109,8 @@ function Get-Strings {
                 Warn32Msg     = "Рекомендуется использовать приложение RadiAnt для оптимальной работы."
                 BtnContinue   = "Продолжить"
                 BtnClose      = "Закрыть"
+                OsWarnTitle   = "Операционная система не соответствует требованиям"
+                OsWarnMsg     = "Weasis требует Windows 10 или новее. Рекомендуем использовать приложение RadiAnt для просмотра изображений DICOM."
             }
         }
         default {
@@ -140,6 +144,8 @@ function Get-Strings {
                 Warn32Msg     = "We recommend using RadiAnt for an optimal experience."
                 BtnContinue   = "Continue"
                 BtnClose      = "Close"
+                OsWarnTitle   = "Operating system does not meet requirements"
+                OsWarnMsg     = "Weasis requires Windows 10 or newer. We recommend using RadiAnt for viewing DICOM images."
             }
         }
     }
@@ -147,6 +153,10 @@ function Get-Strings {
 
 $strings = Get-Strings
 $is32bit = ($ArchLabel -eq "32-bit")
+
+# Detect OS version: Windows 10 = 10.0, Windows 8.1 = 6.3, Windows 7 = 6.1
+$osVersion = [System.Environment]::OSVersion.Version
+$isOldOS = ($osVersion.Major -lt 10)
 
 # ============================================================================
 # WPF XAML LAYOUT
@@ -208,6 +218,36 @@ $xaml = @"
 
             <!-- CONTENT AREA -->
             <Grid Margin="24">
+
+            <!-- OS WARNING PANEL (Windows < 10) -->
+            <StackPanel x:Name="panelOsWarning" Visibility="Collapsed" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,24">
+                    <Image x:Name="imgLogoOs" Width="40" Height="40" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Weasis v3.7.1" FontSize="26" FontWeight="SemiBold" Foreground="#0F9B58" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <TextBlock Text="&#x26A0;" FontSize="40" Foreground="#FF6B35" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+
+                <TextBlock x:Name="txtOsWarnTitle" Text="" FontSize="15" FontWeight="SemiBold"
+                           Foreground="#FF6B35" HorizontalAlignment="Center" TextAlignment="Center"
+                           Margin="20,0,20,10" TextWrapping="Wrap"/>
+                <TextBlock x:Name="txtOsWarnMsg" Text="" FontSize="13"
+                           Foreground="#CCCCCC" HorizontalAlignment="Center" TextAlignment="Center"
+                           Margin="20,0,20,28" TextWrapping="Wrap"/>
+
+                <Button x:Name="btnOsClose" Content="Close" Width="160" Height="40"
+                        FontSize="14" FontWeight="SemiBold" Cursor="Hand"
+                        Foreground="White" Background="#D32F2F" BorderThickness="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="border" Background="{TemplateBinding Background}"
+                                    CornerRadius="6" Padding="12,6">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </StackPanel>
 
             <!-- WARNING PANEL (32-bit) -->
             <StackPanel x:Name="panelWarning" Visibility="Collapsed" VerticalAlignment="Center">
@@ -316,10 +356,12 @@ try {
 }
 
 # Get controls
+$panelOsWarning = $window.FindName("panelOsWarning")
 $panelWarning  = $window.FindName("panelWarning")
 $panelLoading  = $window.FindName("panelLoading")
 $imgLogo       = $window.FindName("imgLogo")
 $imgLogoWarn   = $window.FindName("imgLogoWarn")
+$imgLogoOs     = $window.FindName("imgLogoOs")
 $txtLoading    = $window.FindName("txtLoading")
 $txtWait       = $window.FindName("txtWait")
 $progressBar   = $window.FindName("progressBar")
@@ -328,8 +370,11 @@ $scrollLog     = $window.FindName("scrollLog")
 $txtArch       = $window.FindName("txtArch")
 $txtWarn32Title = $window.FindName("txtWarn32Title")
 $txtWarn32Msg  = $window.FindName("txtWarn32Msg")
+$txtOsWarnTitle = $window.FindName("txtOsWarnTitle")
+$txtOsWarnMsg  = $window.FindName("txtOsWarnMsg")
 $btnContinue   = $window.FindName("btnContinue")
 $btnClose      = $window.FindName("btnClose")
+$btnOsClose    = $window.FindName("btnOsClose")
 $btnMinimize   = $window.FindName("btnMinimize")
 $btnCloseWin   = $window.FindName("btnCloseWin")
 
@@ -338,8 +383,11 @@ $txtWait.Text = $strings.WaitMessage
 $txtArch.Text = "JRE: $ArchLabel"
 $txtWarn32Title.Text = $strings.Warn32Title
 $txtWarn32Msg.Text = $strings.Warn32Msg
+$txtOsWarnTitle.Text = $strings.OsWarnTitle
+$txtOsWarnMsg.Text = $strings.OsWarnMsg
 $btnContinue.Content = $strings.BtnContinue
 $btnClose.Content = $strings.BtnClose
+$btnOsClose.Content = $strings.BtnClose
 
 # Load logo image
 $logoPath = Join-Path $DiscPath "resources\images\logo-button.png"
@@ -353,6 +401,7 @@ if (Test-Path $logoPath) {
         $bitmap.Freeze()
         $imgLogo.Source = $bitmap
         $imgLogoWarn.Source = $bitmap
+        $imgLogoOs.Source = $bitmap
     } catch { }
 }
 
@@ -665,17 +714,28 @@ $completionTimer.Add_Tick({
 
 # --- Window Loaded event ---
 $window.Add_Loaded({
-    if ($is32bit) {
+    if ($isOldOS) {
+        # Windows < 10: show OS warning (only Close button, no Continue)
+        $panelOsWarning.Visibility = "Visible"
+        $panelWarning.Visibility = "Collapsed"
+        $panelLoading.Visibility = "Collapsed"
+    } elseif ($is32bit) {
         # Show 32-bit warning first
         $panelWarning.Visibility = "Visible"
         $panelLoading.Visibility = "Collapsed"
     } else {
-        # 64-bit: go straight to loading
+        # 64-bit + Windows 10+: go straight to loading
         $panelWarning.Visibility = "Collapsed"
         Start-Worker
         $animTimer.Start()
         $completionTimer.Start()
     }
+})
+
+# --- OS warning button (Close only — no Continue option) ---
+$btnOsClose.Add_Click({
+    $syncHash.ExitCode = 0
+    $window.Close()
 })
 
 # --- 32-bit warning buttons ---
