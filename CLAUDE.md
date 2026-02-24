@@ -12,6 +12,28 @@ Replaces eFilm disc burning with open-source Weasis-based solution.
 - **tools/weasis-portable/** - Weasis 3.7.1 + Adoptium JRE 8 x86 + x64 (not in git, created by setup)
 - **tools/dcmtk/** - dcmtk 3.7.0 toolkit, used for DICOMDIR generation (not in git, created by setup)
 
+## Burn Pipeline — Steps & Optimization Analysis (burn.ps1)
+
+| Step | Function | What it does | Duration | Optimizable? |
+|------|----------|-------------|----------|-------------|
+| 1 | `Test-WeasisPortable` | Verify Weasis + JRE exist | <1 sec | ❌ |
+| 2 | `Clear-Staging` | Delete old staging, create new | 1-3 sec | ❌ |
+| 3 | `Expand-PatientZip` | Extract ZIP (`Expand-Archive`) | 5-30 sec | ⚡ marginal |
+| 4 | `Copy-DicomToStaging` | Copy DICOM files + PACS DICOMDIR to staging | 5-30 sec | ⚡⚡ yes |
+| 4b | Patient info extraction | Read PatientName/StudyDate from DICOM header | <1 sec | ❌ |
+| 5 | `Copy-WeasisToStaging` | NTFS junctions for large dirs + copy small files (~3 MB) | **<2 sec** | ✅ **DONE** |
+| 6 | `Copy-TemplatesToStaging` | Copy autorun.inf, start-weasis.bat, splash-loader.ps1 | <1 sec | ❌ |
+| 7 | `Build-LauncherWrapper` | Copy weasis.ico, create .lnk shortcut, .bat wrapper | 1-2 sec | ❌ |
+| 8 | `Generate-Dicomdir` | Skip if PACS DICOMDIR used; fallback: dcmmkdir | <1 sec | ❌ |
+| 8b | Config modification | Add `../DIR000` to `weasis.portable.dicom.directory` | <1 sec | ❌ |
+| 9 | `Show-DiscSummary` | Calculate sizes, show disc structure | 1-2 sec | ❌ |
+| 10 | **`Burn-ToDisc`** | **IMAPI2: create ISO image + burn at x8** | **3-5 min** | ❌ (x8 max) |
+| 11 | `Cleanup` | Delete staging + source ZIP | 2-5 sec | ❌ |
+
+**Optimization implemented (2026-02-25)**: Step 5 used to copy ~225 MB Weasis+JRE to staging every burn (30-60 sec). Now uses **NTFS junctions** for large directories (`bundle/`, `jre/`, `resources/`, `bundle-i18n/`) — instant links, zero bytes copied. Only `conf/` (modified) and loose files (~3 MB) are real copies. IMAPI2 `AddTree` reads transparently through junctions.
+
+**CRITICAL cleanup rule**: `Cleanup` must remove junctions BEFORE `Remove-Item -Recurse`, otherwise PowerShell follows junctions and deletes source files in `tools/weasis-portable/`. Junctions removed with `cmd /c rmdir` (removes link only, not target).
+
 ## Key Technical Decisions
 - **Weasis 3.7.1 portable** (not 4.x) because 4.x has no portable version and is slow from DVD
 - **Dual JRE** (x86 + x64) from Adoptium bundled on disc. `start-weasis.bat` auto-detects OS architecture:

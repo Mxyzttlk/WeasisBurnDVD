@@ -571,21 +571,34 @@ $workerScript = {
         }
         Log "[OK] $discLabel" 30
 
-        # ======== STEP 6: COPY WEASIS ========
+        # ======== STEP 6: COPY WEASIS (junctions for large dirs) ========
         UpdateStatus ($s.StepWeasis)
         Log ">>> $($s.StepWeasis)" 32
         $excludeNames = @("viewer-mac.app", "autorun.inf", "viewer-win32.exe")
+        $copyDirs = @("conf")  # dirs that get modified — must be real copies
+        $junctionCount = 0; $copyCount = 0
         $items = Get-ChildItem -Path $weasisDir
         foreach ($item in $items) {
             if ($excludeNames -contains $item.Name) { continue }
             $destPath = Join-Path $contentDir $item.Name
-            if ($item.PSIsContainer) { Copy-Item -Path $item.FullName -Destination $destPath -Recurse -Force }
-            else { Copy-Item -Path $item.FullName -Destination $destPath -Force }
+            if ($item.PSIsContainer) {
+                if ($copyDirs -contains $item.Name) {
+                    Copy-Item -Path $item.FullName -Destination $destPath -Recurse -Force
+                    $copyCount++
+                } else {
+                    $null = cmd /c "mklink /J `"$destPath`" `"$($item.FullName)`"" 2>&1
+                    if (Test-Path $destPath) { $junctionCount++ }
+                    else { Copy-Item -Path $item.FullName -Destination $destPath -Recurse -Force; $copyCount++ }
+                }
+            } else {
+                Copy-Item -Path $item.FullName -Destination $destPath -Force
+                $copyCount++
+            }
         }
         $jreInfo = @()
         if (Test-Path (Join-Path $contentDir "jre\windows\bin\java.exe")) { $jreInfo += "x86" }
         if (Test-Path (Join-Path $contentDir "jre\windows-x64\bin\java.exe")) { $jreInfo += "x64" }
-        Log "[OK] Weasis (JRE: $($jreInfo -join ' + '))" 48
+        Log "[OK] Weasis: ${junctionCount}J + ${copyCount}C (JRE: $($jreInfo -join ' + '))" 48
 
         # ======== STEP 7: TEMPLATES ========
         UpdateStatus ($s.StepTemplates)
@@ -830,6 +843,13 @@ $workerScript = {
         Log ">>> $($s.StepCleanup)" 98
         Start-Sleep -Seconds 1
         if (Test-Path $tempRoot) {
+            # Remove NTFS junctions BEFORE Remove-Item -Recurse!
+            # PowerShell follows junctions and would delete source files in tools/weasis-portable/
+            try {
+                Get-ChildItem -Path $tempRoot -Recurse -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
+                    ForEach-Object { cmd /c "rmdir `"$($_.FullName)`"" 2>$null }
+            } catch {}
             try { Remove-Item -Recurse -Force $tempRoot -ErrorAction SilentlyContinue } catch {}
             if (Test-Path $tempRoot) {
                 Start-Sleep -Seconds 2

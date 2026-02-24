@@ -334,20 +334,43 @@ function Copy-DicomToStaging {
 }
 
 function Copy-WeasisToStaging {
-    Write-Status "Copiez Weasis portable pe disc..."
+    Write-Status "Copiez Weasis portable pe disc (junctions)..."
 
     # Folders/files to exclude from DVD (not needed for Windows target / replaced by our templates)
     $excludeNames = @("viewer-mac.app", "autorun.inf", "viewer-win32.exe")
 
-    # Copy weasis-portable contents to Weasis/ subfolder, excluding macOS app bundle
+    # Directories that need normal copy (will be modified during burn process)
+    $copyDirs = @("conf")
+
+    # Use NTFS junctions for large directories (instant, zero bytes copied).
+    # IMAPI2 AddTree reads through junctions transparently.
+    # Only small/modified items are copied normally.
+    $junctionCount = 0
+    $copyCount = 0
+
     $items = Get-ChildItem -Path $WeasisDir
     foreach ($item in $items) {
         if ($excludeNames -contains $item.Name) { continue }
         $destPath = Join-Path $ContentDir $item.Name
         if ($item.PSIsContainer) {
-            Copy-Item -Path $item.FullName -Destination $destPath -Recurse -Force
+            if ($copyDirs -contains $item.Name) {
+                # Normal copy — this directory gets modified (e.g. config.properties)
+                Copy-Item -Path $item.FullName -Destination $destPath -Recurse -Force
+                $copyCount++
+            } else {
+                # NTFS junction — instant link, no data copied
+                $null = cmd /c "mklink /J `"$destPath`" `"$($item.FullName)`"" 2>&1
+                if (Test-Path $destPath) {
+                    $junctionCount++
+                } else {
+                    # Fallback: normal copy if junction fails (e.g. policy restriction)
+                    Copy-Item -Path $item.FullName -Destination $destPath -Recurse -Force
+                    $copyCount++
+                }
+            }
         } else {
             Copy-Item -Path $item.FullName -Destination $destPath -Force
+            $copyCount++
         }
     }
 
@@ -355,7 +378,7 @@ function Copy-WeasisToStaging {
     $jreInfo = @()
     if (Test-Path (Join-Path $ContentDir "jre\windows\bin\java.exe")) { $jreInfo += "x86" }
     if (Test-Path (Join-Path $ContentDir "jre\windows-x64\bin\java.exe")) { $jreInfo += "x64" }
-    Write-Ok "Weasis portable copiat (JRE: $($jreInfo -join ' + '))"
+    Write-Ok "Weasis portable: $junctionCount junctions + $copyCount copii (JRE: $($jreInfo -join ' + '))"
 }
 
 function Copy-TemplatesToStaging {
@@ -735,6 +758,18 @@ function Cleanup {
     if (Test-Path $TempRoot) {
         # Wait briefly for IMAPI2 to release file locks
         Start-Sleep -Seconds 2
+
+        # CRITICAL: Remove NTFS junctions BEFORE Remove-Item -Recurse!
+        # PowerShell follows junctions and would delete source files in tools/weasis-portable/
+        # rmdir on a junction removes only the link, not the target data.
+        try {
+            Get-ChildItem -Path $TempRoot -Recurse -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
+                ForEach-Object {
+                    cmd /c "rmdir `"$($_.FullName)`"" 2>$null
+                }
+        } catch {}
+
         try {
             Remove-Item -Recurse -Force $TempRoot -ErrorAction SilentlyContinue
         } catch {}
