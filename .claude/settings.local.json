@@ -59,7 +59,22 @@
       "Bash(powershell.exe -ExecutionPolicy Bypass -NoProfile -File \"E:\\\\Weasis Burn\\\\scripts\\\\check-syntax.ps1\")",
       "Bash(powershell.exe -ExecutionPolicy Bypass -NoProfile -File \"E:\\\\Weasis Burn\\\\scripts\\\\fix-encoding.ps1\" \"E:\\\\Weasis Burn\\\\templates\\\\splash-loader.ps1\")",
       "Bash(powershell.exe -sta -ExecutionPolicy Bypass -File \"E:\\\\Weasis Burn\\\\scripts\\\\test-screens.ps1\" -Screen \"os-block\")",
-      "Bash(xxd:*)"
+      "Bash(xxd:*)",
+      "Bash(# Check DICOM file structure on staging disc ls \"\"$TEMP/WeasisBurn/disc/Weasis/DICOM/\"\")",
+      "Bash(# Check deeper - what''s inside CTED directory ls \"\"$TEMP/WeasisBurn/disc/Weasis/DICOM/CTED/\"\")",
+      "Bash(# Count total DICOM files in staging find \"\"$TEMP/WeasisBurn/disc/Weasis/DICOM/\"\" -type f)",
+      "Bash(# Show first 30 filenames to see naming pattern find \"\"$TEMP/WeasisBurn/disc/Weasis/DICOM/\"\" -type f)",
+      "Bash(# Dump our DICOMDIR - show first 100 lines to see paths \"\"E:/Weasis Burn/tools/dcmtk/bin/dcmdump.exe\"\" \"\"$TEMP/WeasisBurn/disc/DICOMDIR\"\")",
+      "Bash(# Look at extracted ZIP structure to understand CTED origin ls \"\"$TEMP/WeasisBurn/extracted/\"\")",
+      "Bash(# Check deeper structure find \"\"$TEMP/WeasisBurn/extracted/\"\" -maxdepth 4 -type d)",
+      "Bash(# Dump PACS DICOMDIR - first 100 lines \"\"E:/Weasis Burn/tools/dcmtk/bin/dcmdump.exe\"\" \"\"$TEMP/WeasisBurn/extracted/DICOMDIR\"\")",
+      "Bash(# Show all unique ReferencedFileID path prefixes in PACS DICOMDIR \"\"E:/Weasis Burn/tools/dcmtk/bin/dcmdump.exe\"\" \"\"$TEMP/WeasisBurn/extracted/DICOMDIR\"\")",
+      "Bash(# Show unique path PREFIXES \\(first 2 components\\) in PACS DICOMDIR \"\"E:/Weasis Burn/tools/dcmtk/bin/dcmdump.exe\"\" \"\"$TEMP/WeasisBurn/extracted/DICOMDIR\"\")",
+      "Bash(# Check paths in the new DICOMDIR - what prefix does it use? \"\"E:/Weasis Burn/tools/dcmtk/bin/dcmdump.exe\"\" \"\"$TEMP/WeasisBurn/disc/DICOMDIR_TEST2\"\")",
+      "Bash(# Check if extracted ZIP files have .DCM extension ls \"\"$TEMP/WeasisBurn/extracted/DIR000/00000000/\"\")",
+      "Bash(# Count files with and without .DCM extension echo \"\"Files with .DCM extension:\"\" find \"\"$TEMP/WeasisBurn/extracted/DIR000/\"\" -type f -name \"\"*.DCM\"\")",
+      "Bash(# Show a sample file to see if it has extension find \"\"$TEMP/WeasisBurn/extracted/DIR000/\"\" -type f)",
+      "Bash(# Verify DICOMDIR at disc root has correct paths matching actual files \"\"E:/Weasis Burn/tools/dcmtk/bin/dcmdump.exe\"\" \"\"$TEMP/WeasisBurn/disc/DICOMDIR\"\")"
     ]
   }
 }

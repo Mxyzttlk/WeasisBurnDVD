@@ -349,11 +349,18 @@ echo   %C_GREEN%[OK] %S_JRE%%C_R%
 
 REM --- [6/6] DICOM junction ---
 echo   %C_GREEN%[6/6]%C_R% %S_DICOM%
-if exist "%DISC%DICOM" (
-    mklink /J "%TEMP_DIR%\DICOM" "%DISC%DICOM" >nul 2>&1
+set "DICOM_SRC="
+REM Check disc root first (PACS DICOMDIR layout: DIR000/ at root)
+if exist "%DISC%..\DIR000" set "DICOM_SRC=%DISC%..\DIR000"
+if not defined DICOM_SRC if exist "%DISC%..\DICOM" set "DICOM_SRC=%DISC%..\DICOM"
+REM Fallback: check inside Weasis folder
+if not defined DICOM_SRC if exist "%DISC%DICOM" set "DICOM_SRC=%DISC%DICOM"
+if not defined DICOM_SRC if exist "%DISC%dicom" set "DICOM_SRC=%DISC%dicom"
+if defined DICOM_SRC (
+    mklink /J "%TEMP_DIR%\DICOM" "%DICOM_SRC%" >nul 2>&1
     if not exist "%TEMP_DIR%\DICOM" (
         echo   %C_YELLOW%[!] %S_DICOM_JUNC_FAIL%%C_R%
-        xcopy /E /I /Q /Y "%DISC%DICOM" "%TEMP_DIR%\DICOM" >nul 2>&1
+        xcopy /E /I /Q /Y "%DICOM_SRC%" "%TEMP_DIR%\DICOM" >nul 2>&1
     )
 )
 echo   %C_GREEN%[OK] %S_DICOM%%C_R%

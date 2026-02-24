@@ -635,8 +635,21 @@ $workerScript = {
 
         # [6/6] DICOM junction
         Log ("[6/6] " + $s.DicomLink) 83
-        $dicomSrc = Join-Path $discPath "DICOM"
-        if (Test-Path $dicomSrc) {
+        $discRoot = Split-Path $discPath -Parent
+        $dicomSrc = $null
+        # Check disc root first (PACS DICOMDIR layout: DIR000/ at root)
+        foreach ($dn in @("DIR000","DICOM","dicom","IMAGES","images")) {
+            $candidate = Join-Path $discRoot $dn
+            if (Test-Path $candidate) { $dicomSrc = $candidate; break }
+        }
+        # Fallback: check inside Weasis folder
+        if (-not $dicomSrc) {
+            foreach ($dn in @("DICOM","dicom","IMAGES","images")) {
+                $candidate = Join-Path $discPath $dn
+                if (Test-Path $candidate) { $dicomSrc = $candidate; break }
+            }
+        }
+        if ($dicomSrc) {
             $dicomDst = Join-Path $tempDir "DICOM"
             $null = cmd /c "mklink /J `"$dicomDst`" `"$dicomSrc`"" 2>&1
             if (-not (Test-Path $dicomDst)) {
