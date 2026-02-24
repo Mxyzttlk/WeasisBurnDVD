@@ -192,7 +192,14 @@ function Expand-PatientZip {
     }
 
     Write-Status "Extrag ZIP-ul: $(Split-Path -Leaf $Zip)"
-    Expand-Archive -Path $Zip -DestinationPath $extractDir -Force
+    # .NET ZipFile is 2-3x faster than PowerShell's Expand-Archive
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    try {
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($Zip, $extractDir)
+    } catch {
+        # Fallback to Expand-Archive if .NET method fails
+        Expand-Archive -Path $Zip -DestinationPath $extractDir -Force
+    }
     Write-Ok "ZIP extras in: $extractDir"
 
     return $extractDir
@@ -273,13 +280,18 @@ function Copy-DicomToStaging {
             # PACS DICOMDIR usable: DICOM dirs are at ZIP root level (paths match)
             $script:usePacsDicomdir = $true
 
-            # Copy each DICOM directory to disc root (e.g. DIR000/ -> disc\DIR000\)
+            # Link each DICOM directory to disc root via junction (e.g. DIR000/ -> disc\DIR000\)
+            # DICOM files are NOT modified for PACS path — junction is safe.
             foreach ($d in $topDirsWithDcm) {
                 $dest = Join-Path $DiscStaging $d.Name
-                Copy-Item -Path $d.FullName -Destination $dest -Recurse -Force
+                $null = cmd /c "mklink /J `"$dest`" `"$($d.FullName)`"" 2>&1
+                if (-not (Test-Path $dest)) {
+                    # Fallback: normal copy if junction fails
+                    Copy-Item -Path $d.FullName -Destination $dest -Recurse -Force
+                }
                 $script:dicomRootFolders += $d.Name
                 $dirCount = (Get-ChildItem -Path $dest -Recurse -File).Count
-                Write-Ok "Copiat $($d.Name)/ la root disc ($dirCount fisiere, cu .DCM)"
+                Write-Ok "$($d.Name)/ la root disc ($dirCount fisiere) [junction]"
             }
 
             # Copy PACS DICOMDIR to disc root (paths already match!)

@@ -471,7 +471,13 @@ $workerScript = {
         Log ">>> $($s.StepExtract) $(Split-Path -Leaf $zipPath)" 10
         $extractDir = Join-Path $tempRoot "extracted"
         if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
-        Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+        # .NET ZipFile is 2-3x faster than PowerShell's Expand-Archive
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+        try {
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractDir)
+        } catch {
+            Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+        }
         Log "[OK] ZIP -> $extractDir" 18
 
         # ======== STEP 4: COPY DICOM FILES ========
@@ -510,7 +516,11 @@ $workerScript = {
 
         if ($dicomSourceRoot) {
             $destDicom = Join-Path $contentDir (Split-Path -Leaf $dicomSourceRoot)
-            Copy-Item -Path $dicomSourceRoot -Destination $destDicom -Recurse -Force
+            # Junction — DICOM files are not modified, no need to copy
+            $null = cmd /c "mklink /J `"$destDicom`" `"$dicomSourceRoot`"" 2>&1
+            if (-not (Test-Path $destDicom)) {
+                Copy-Item -Path $dicomSourceRoot -Destination $destDicom -Recurse -Force
+            }
         } else {
             $dicomDir = Join-Path $contentDir "DICOM"
             New-Item -ItemType Directory -Path $dicomDir -Force | Out-Null

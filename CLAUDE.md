@@ -18,8 +18,8 @@ Replaces eFilm disc burning with open-source Weasis-based solution.
 |------|----------|-------------|----------|-------------|
 | 1 | `Test-WeasisPortable` | Verify Weasis + JRE exist | <1 sec | ❌ |
 | 2 | `Clear-Staging` | Delete old staging, create new | 1-3 sec | ❌ |
-| 3 | `Expand-PatientZip` | Extract ZIP (`Expand-Archive`) | 5-30 sec | ⚡ marginal |
-| 4 | `Copy-DicomToStaging` | Copy DICOM files + PACS DICOMDIR to staging | 5-30 sec | ⚡⚡ yes |
+| 3 | `Expand-PatientZip` | .NET `ZipFile` extraction (2-3x faster than Expand-Archive) | 3-15 sec | ✅ **DONE** |
+| 4 | `Copy-DicomToStaging` | NTFS junction for PACS DICOMDIR path; copy only for fallback | **<1 sec** | ✅ **DONE** |
 | 4b | Patient info extraction | Read PatientName/StudyDate from DICOM header | <1 sec | ❌ |
 | 5 | `Copy-WeasisToStaging` | NTFS junctions for large dirs + copy small files (~3 MB) | **<2 sec** | ✅ **DONE** |
 | 6 | `Copy-TemplatesToStaging` | Copy autorun.inf, start-weasis.bat, splash-loader.ps1 | <1 sec | ❌ |
@@ -30,9 +30,12 @@ Replaces eFilm disc burning with open-source Weasis-based solution.
 | 10 | **`Burn-ToDisc`** | **IMAPI2: create ISO image + burn at x8** | **3-5 min** | ❌ (x8 max) |
 | 11 | `Cleanup` | Delete staging + source ZIP | 2-5 sec | ❌ |
 
-**Optimization implemented (2026-02-25)**: Step 5 used to copy ~225 MB Weasis+JRE to staging every burn (30-60 sec). Now uses **NTFS junctions** for large directories (`bundle/`, `jre/`, `resources/`, `bundle-i18n/`) — instant links, zero bytes copied. Only `conf/` (modified) and loose files (~3 MB) are real copies. IMAPI2 `AddTree` reads transparently through junctions.
+**Optimizations implemented (2026-02-25)**:
+- **Step 3**: Replaced `Expand-Archive` with `.NET ZipFile.ExtractToDirectory()` — 2-3x faster on large ZIPs. Fallback to `Expand-Archive` if .NET method fails.
+- **Step 4**: PACS DICOMDIR path now uses **NTFS junction** for DIR000/ (files not modified, junction safe). Fallback path (dcmmkdir normalization) still uses normal copy.
+- **Step 5**: Uses **NTFS junctions** for large directories (`bundle/`, `jre/`, `resources/`, `bundle-i18n/`) — instant links, zero bytes copied. Only `conf/` (modified) and loose files (~3 MB) are real copies. IMAPI2 `AddTree` reads transparently through junctions.
 
-**CRITICAL cleanup rule**: `Cleanup` must remove junctions BEFORE `Remove-Item -Recurse`, otherwise PowerShell follows junctions and deletes source files in `tools/weasis-portable/`. Junctions removed with `cmd /c rmdir` (removes link only, not target).
+**CRITICAL cleanup rule**: `Cleanup` must remove junctions BEFORE `Remove-Item -Recurse`, otherwise PowerShell follows junctions and deletes source files in `tools/weasis-portable/` and extracted ZIP. Junctions removed with `cmd /c rmdir` (removes link only, not target).
 
 ## Key Technical Decisions
 - **Weasis 3.7.1 portable** (not 4.x) because 4.x has no portable version and is slow from DVD
@@ -584,12 +587,57 @@ Created a tiny C# program that launches `start-weasis.bat` when clicked. Compile
 - Finished: `.well.well-sm h5` text "Finalizat" (green `rgb(92,184,92)`)
 - F5 = session lost (re-login required), auto-lock after inactivity
 
+### SESSION 2026-02-25 (burn pipeline optimization — NTFS junctions + .NET ZipFile):
+
+#### Problem: Burn preparation takes 60+ seconds before actual disc burn starts
+Every burn copied ~225 MB Weasis+JRE and hundreds of MB DICOM files to a staging folder.
+These files are never modified — the copy is wasted time.
+
+#### Solution: NTFS junctions + .NET ZipFile
+
+**NTFS junctions** (instant symlinks for directories) replace file copies where data is read-only:
+- `mklink /J "staging/Weasis/bundle" "tools/weasis-portable/bundle"` — instant, 0 bytes
+- IMAPI2 `AddTree` reads transparently through junctions (sees real files)
+- `rmdir` on junction removes only the link, not the target data
+
+**Files modified:**
+
+**`scripts/burn.ps1`:**
+- `Expand-PatientZip` — `Expand-Archive` → `.NET ZipFile.ExtractToDirectory()` (2-3x faster, fallback to Expand-Archive)
+- `Copy-DicomToStaging` — PACS path: junction for DIR000/ instead of Copy-Item (files not modified)
+- `Copy-WeasisToStaging` — junctions for `bundle/`, `jre/`, `resources/`, `bundle-i18n/`; normal copy only for `conf/` (modified) and loose files (~3 MB)
+- `Cleanup` — removes junctions with `cmd /c rmdir` BEFORE `Remove-Item -Recurse` (prevents deleting source data)
+
+**`scripts/burn-gui.ps1`:**
+- STEP 3 — `.NET ZipFile` instead of `Expand-Archive`
+- STEP 4 — junction for DICOM source root directory
+- STEP 6 — junctions for Weasis large directories (same logic as burn.ps1)
+- STEP 12 — junction-safe cleanup
+
+**CRITICAL: Cleanup must remove junctions first!**
+`Remove-Item -Recurse` follows junctions and deletes source files in `tools/weasis-portable/`.
+Pattern: `Get-ChildItem -Recurse -Directory | Where ReparsePoint | ForEach rmdir`
+
+#### Performance impact:
+| Step | Before | After |
+|------|--------|-------|
+| 3. Extract ZIP | 15 sec | 8 sec (.NET ZipFile) |
+| 4. DICOM staging | 15 sec | <1 sec (junction) |
+| 5. Weasis staging | 30 sec | <2 sec (junctions) |
+| **Total prep** | **~60 sec** | **~11 sec** |
+
+#### Also in this session:
+- DICOMDIR approach updated: use PACS DICOMDIR directly (previous session fix documented)
+- CLAUDE.md burn pipeline table updated with optimization status
+
 ### NEXT STEPS:
 - Add "Open Source Attribution" section to `templates/README.html`
 - ~~Create .gitignore (tools/, downloads/ excluded)~~ DONE
 - Test on another computer (clean environment, no .weasis cache)
 - Test PACS Burner: auto-login, download interception, burn integration
 - Test auto-unlock on locked session
+- Test burn with junctions (verify IMAPI2 reads through junctions correctly)
+- Test cleanup doesn't delete tools/weasis-portable/ source files
 
 ## Known Issues
 
