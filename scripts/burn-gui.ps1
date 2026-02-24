@@ -503,41 +503,78 @@ $workerScript = {
         if ($allDcmFiles.Count -eq 0) { throw $s.NoDicom }
         Log "[OK] $($allDcmFiles.Count) DICOM" 22
 
-        # Find DICOM root folder
-        $firstDcm = $allDcmFiles[0]
-        $dicomSourceRoot = $null
-        $checkPath = $firstDcm.DirectoryName
-        while ($checkPath -and $checkPath.Length -gt $extractDir.Length) {
-            if ((Split-Path -Leaf $checkPath) -match "^(DICOM|dicom|IMAGES|images)$") {
-                $dicomSourceRoot = $checkPath; break
+        # Check if PACS DICOMDIR can be used directly ("Exclude Viewer" ZIPs)
+        $usePacsDicomdir = $false
+        $dicomRootFolders = @()
+        $pacsDicomdir = Join-Path $extractDir "DICOMDIR"
+        if (Test-Path $pacsDicomdir) {
+            $topDirsWithDcm = @()
+            Get-ChildItem -Path $extractDir -Directory | ForEach-Object {
+                $hasDcm = Get-ChildItem -Path $_.FullName -Recurse -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Extension -match "^\.(dcm|DCM)$" } | Select-Object -First 1
+                if ($hasDcm) { $topDirsWithDcm += $_ }
             }
-            $checkPath = Split-Path -Parent $checkPath
+            if ($topDirsWithDcm.Count -gt 0) {
+                $usePacsDicomdir = $true
+                foreach ($d in $topDirsWithDcm) {
+                    $dest = Join-Path $discStaging $d.Name
+                    $null = cmd /c "mklink /J `"$dest`" `"$($d.FullName)`"" 2>&1
+                    if (-not (Test-Path $dest)) {
+                        Copy-Item -Path $d.FullName -Destination $dest -Recurse -Force
+                    }
+                    $dicomRootFolders += $d.Name
+                    $dirCount = (Get-ChildItem -Path $dest -Recurse -File).Count
+                    Log "[OK] $($d.Name)/ -> root ($dirCount files) [junction]" 25
+                }
+                Copy-Item -Path $pacsDicomdir -Destination (Join-Path $discStaging "DICOMDIR") -Force
+                $dSize = [math]::Round((Get-Item (Join-Path $discStaging "DICOMDIR")).Length / 1KB)
+                Log "[OK] PACS DICOMDIR ($dSize KB)" 28
+            }
         }
 
-        if ($dicomSourceRoot) {
-            $destDicom = Join-Path $contentDir (Split-Path -Leaf $dicomSourceRoot)
-            # Junction — DICOM files are not modified, no need to copy
-            $null = cmd /c "mklink /J `"$destDicom`" `"$dicomSourceRoot`"" 2>&1
-            if (-not (Test-Path $destDicom)) {
-                Copy-Item -Path $dicomSourceRoot -Destination $destDicom -Recurse -Force
+        # Fallback: no PACS DICOMDIR — copy DICOM into Weasis/DICOM/
+        if (-not $usePacsDicomdir) {
+            $firstDcm = $allDcmFiles[0]
+            $dicomSourceRoot = $null
+            $checkPath = $firstDcm.DirectoryName
+            while ($checkPath -and $checkPath.Length -gt $extractDir.Length) {
+                if ((Split-Path -Leaf $checkPath) -match "^(DICOM|dicom|IMAGES|images)$") {
+                    $dicomSourceRoot = $checkPath; break
+                }
+                $checkPath = Split-Path -Parent $checkPath
             }
-        } else {
-            $dicomDir = Join-Path $contentDir "DICOM"
-            New-Item -ItemType Directory -Path $dicomDir -Force | Out-Null
-            foreach ($f in $allDcmFiles) {
-                $relPath = $f.FullName.Substring($extractDir.Length).TrimStart('\', '/')
-                $destPath = Join-Path $dicomDir $relPath
-                $destDir2 = Split-Path -Parent $destPath
-                if (-not (Test-Path $destDir2)) { New-Item -ItemType Directory -Path $destDir2 -Force | Out-Null }
-                Copy-Item -Path $f.FullName -Destination $destPath -Force
+            if ($dicomSourceRoot) {
+                $destDicom = Join-Path $contentDir (Split-Path -Leaf $dicomSourceRoot)
+                $null = cmd /c "mklink /J `"$destDicom`" `"$dicomSourceRoot`"" 2>&1
+                if (-not (Test-Path $destDicom)) {
+                    Copy-Item -Path $dicomSourceRoot -Destination $destDicom -Recurse -Force
+                }
+            } else {
+                $dicomDir = Join-Path $contentDir "DICOM"
+                New-Item -ItemType Directory -Path $dicomDir -Force | Out-Null
+                foreach ($f in $allDcmFiles) {
+                    $relPath = $f.FullName.Substring($extractDir.Length).TrimStart('\', '/')
+                    $destPath = Join-Path $dicomDir $relPath
+                    $destDir2 = Split-Path -Parent $destPath
+                    if (-not (Test-Path $destDir2)) { New-Item -ItemType Directory -Path $destDir2 -Force | Out-Null }
+                    Copy-Item -Path $f.FullName -Destination $destPath -Force
+                }
             }
+            Log "[OK] DICOM -> Weasis/DICOM/" 28
         }
-        Log "[OK] DICOM -> Weasis/DICOM/" 28
 
         # ======== STEP 5: PATIENT INFO + DISC LABEL ========
         UpdateStatus ($s.StepPatient)
         Log ">>> $($s.StepPatient)" 29
-        $dicomSearchDir = Join-Path $contentDir "DICOM"
+        $dicomSearchDir = $null
+        # Check disc root first (PACS DICOMDIR layout: DIR000/ at root)
+        if ($dicomRootFolders -and $dicomRootFolders.Count -gt 0) {
+            $dicomSearchDir = Join-Path $discStaging $dicomRootFolders[0]
+        }
+        # Fallback: Weasis/DICOM/
+        if (-not $dicomSearchDir -or -not (Test-Path $dicomSearchDir)) {
+            $dicomSearchDir = Join-Path $contentDir "DICOM"
+        }
         if (-not (Test-Path $dicomSearchDir)) {
             $dicomSearchDir = Get-ChildItem -Path $contentDir -Directory | Where-Object {
                 $_.Name -match "^(DICOM|dicom|IMAGES|images)$"
@@ -649,73 +686,93 @@ $workerScript = {
             Log "[!] Shortcut: $($_.Exception.Message)" 57
         }
 
-        # ======== STEP 9: GENERATE DICOMDIR ========
+        # ======== STEP 9: DICOMDIR ========
         UpdateStatus ($s.StepDicomdir)
         Log ">>> $($s.StepDicomdir)" 58
-        $dcmmkdir = Join-Path $dcmtkDir "bin\dcmmkdir.exe"
-        if (-not (Test-Path $dcmmkdir)) {
-            Log "[!] $($s.DcmtkMissing)" 65
+
+        if ($usePacsDicomdir) {
+            # PACS DICOMDIR already copied in STEP 4 — skip dcmmkdir entirely
+            Log "[OK] PACS DICOMDIR already at root (correct paths, full metadata)" 65
+
+            # Configure Weasis to scan DICOM at disc root (../DIR000 etc.)
+            $configPath2 = Join-Path $contentDir "conf\config.properties"
+            if (Test-Path $configPath2) {
+                $configContent2 = [System.IO.File]::ReadAllText($configPath2, [System.Text.Encoding]::UTF8)
+                $extraDirs2 = ($dicomRootFolders | ForEach-Object { "../$_" }) -join ","
+                $oldLine2 = "weasis.portable.dicom.directory=dicom,DICOM,IMAGES,images"
+                $newLine2 = "weasis.portable.dicom.directory=dicom,DICOM,IMAGES,images,$extraDirs2"
+                $configContent2 = $configContent2.Replace($oldLine2, $newLine2)
+                [System.IO.File]::WriteAllText($configPath2, $configContent2, [System.Text.Encoding]::UTF8)
+                Log "[OK] config: $extraDirs2" 65
+            }
         } else {
-            $dicomDir3 = Join-Path $contentDir "DICOM"
-            if (Test-Path $dicomDir3) {
-                # Strip .DCM extensions
-                $renamed = 0
-                Get-ChildItem -Path $dicomDir3 -Recurse -File | Where-Object {
-                    $_.Extension -match "^\.(dcm|DCM)$"
-                } | ForEach-Object {
-                    Rename-Item -Path $_.FullName -NewName $_.BaseName -ErrorAction SilentlyContinue
-                    $renamed++
-                }
-                if ($renamed -gt 0) { Log "[OK] .DCM ext removed: $renamed" 60 }
-
-                # Make directory names DICOM-compliant
-                Get-ChildItem -Path $dicomDir3 -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending | ForEach-Object {
-                    $newName = $_.Name.ToUpper() -replace '[^A-Z0-9_]', ''
-                    if ($newName.Length -gt 8) { $newName = $newName.Substring(0, 8) }
-                    if ($newName -eq '') { $newName = 'D' + (Get-Random -Minimum 1000 -Maximum 9999) }
-                    if ($_.Name -cne $newName) {
-                        $parentDir = Split-Path $_.FullName
-                        $tempName = "_ren_" + (Get-Random -Minimum 10000 -Maximum 99999)
-                        $tempPath2 = Join-Path $parentDir $tempName
-                        Rename-Item -Path $_.FullName -NewName $tempName -ErrorAction SilentlyContinue
-                        if (Test-Path $tempPath2) { Rename-Item -Path $tempPath2 -NewName $newName -ErrorAction SilentlyContinue }
-                    }
-                }
-
-                # Make file names DICOM-compliant
-                Get-ChildItem -Path $dicomDir3 -Recurse -File | ForEach-Object {
-                    $newName = ($_.BaseName.ToUpper()) -replace '[^A-Z0-9_]', ''
-                    if ($newName.Length -gt 8) { $newName = $newName.Substring(0, 8) }
-                    if ($newName -eq '') { $newName = 'F' + (Get-Random -Minimum 10000 -Maximum 99999) }
-                    $ext = $_.Extension
-                    $fullNew = $newName + $ext
-                    if ($_.Name -cne $fullNew) {
-                        $parentDir = Split-Path $_.FullName
-                        $tempName = "_ren_" + (Get-Random -Minimum 10000 -Maximum 99999)
-                        $tempPath3 = Join-Path $parentDir $tempName
-                        Rename-Item -Path $_.FullName -NewName $tempName -ErrorAction SilentlyContinue
-                        if (Test-Path $tempPath3) { Rename-Item -Path $tempPath3 -NewName $fullNew -ErrorAction SilentlyContinue }
-                    }
-                }
-                Log "[OK] DICOM-compliant names" 62
-
-                # Set DICOM dictionary
-                $dictPath = Join-Path $dcmtkDir "share\dcmtk\dicom.dic"
-                if (Test-Path $dictPath) { $env:DCMDICTPATH = $dictPath }
-
-                # Run dcmmkdir
-                $dicomdirPath = Join-Path $discStaging "DICOMDIR"
-                $cmdLine = "cd /d `"$discStaging`" && `"$dcmmkdir`" +r +id Weasis\DICOM +D DICOMDIR +I -Pgp"
-                $output = cmd /c $cmdLine 2>&1
-
-                if ($LASTEXITCODE -eq 0 -and (Test-Path $dicomdirPath)) {
-                    $dSize = [math]::Round((Get-Item $dicomdirPath).Length / 1KB)
-                    Log "[OK] DICOMDIR ($dSize KB)" 65
-                } else {
-                    Log "[!] dcmmkdir failed (code: $LASTEXITCODE)" 65
-                }
+            # Fallback: generate DICOMDIR with dcmmkdir
+            $dcmmkdir = Join-Path $dcmtkDir "bin\dcmmkdir.exe"
+            if (-not (Test-Path $dcmmkdir)) {
+                Log "[!] $($s.DcmtkMissing)" 65
             } else {
-                Log "[!] No DICOM folder in staging" 65
+                $dicomDir3 = Join-Path $contentDir "DICOM"
+                if (Test-Path $dicomDir3) {
+                    # Strip .DCM extensions
+                    $renamed = 0
+                    Get-ChildItem -Path $dicomDir3 -Recurse -File | Where-Object {
+                        $_.Extension -match "^\.(dcm|DCM)$"
+                    } | ForEach-Object {
+                        Rename-Item -Path $_.FullName -NewName $_.BaseName -ErrorAction SilentlyContinue
+                        $renamed++
+                    }
+                    if ($renamed -gt 0) { Log "[OK] .DCM ext removed: $renamed" 60 }
+
+                    # Make directory names DICOM-compliant
+                    Get-ChildItem -Path $dicomDir3 -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending | ForEach-Object {
+                        $newName = $_.Name.ToUpper() -replace '[^A-Z0-9_]', ''
+                        if ($newName.Length -gt 8) { $newName = $newName.Substring(0, 8) }
+                        if ($newName -eq '') { $newName = 'D' + (Get-Random -Minimum 1000 -Maximum 9999) }
+                        if ($_.Name -cne $newName) {
+                            $parentDir = Split-Path $_.FullName
+                            $tempName = "_ren_" + (Get-Random -Minimum 10000 -Maximum 99999)
+                            $tempPath2 = Join-Path $parentDir $tempName
+                            Rename-Item -Path $_.FullName -NewName $tempName -ErrorAction SilentlyContinue
+                            if (Test-Path $tempPath2) { Rename-Item -Path $tempPath2 -NewName $newName -ErrorAction SilentlyContinue }
+                        }
+                    }
+
+                    # Make file names DICOM-compliant
+                    Get-ChildItem -Path $dicomDir3 -Recurse -File | ForEach-Object {
+                        $newName = ($_.BaseName.ToUpper()) -replace '[^A-Z0-9_]', ''
+                        if ($newName.Length -gt 8) { $newName = $newName.Substring(0, 8) }
+                        if ($newName -eq '') { $newName = 'F' + (Get-Random -Minimum 10000 -Maximum 99999) }
+                        $ext = $_.Extension
+                        $fullNew = $newName + $ext
+                        if ($_.Name -cne $fullNew) {
+                            $parentDir = Split-Path $_.FullName
+                            $tempName = "_ren_" + (Get-Random -Minimum 10000 -Maximum 99999)
+                            $tempPath3 = Join-Path $parentDir $tempName
+                            Rename-Item -Path $_.FullName -NewName $tempName -ErrorAction SilentlyContinue
+                            if (Test-Path $tempPath3) { Rename-Item -Path $tempPath3 -NewName $fullNew -ErrorAction SilentlyContinue }
+                        }
+                    }
+                    Log "[OK] DICOM-compliant names" 62
+
+                    # Set DICOM dictionary
+                    $dictPath = Join-Path $dcmtkDir "share\dcmtk-3.7.0\dicom.dic"
+                    if (-not (Test-Path $dictPath)) { $dictPath = Join-Path $dcmtkDir "share\dcmtk\dicom.dic" }
+                    if (Test-Path $dictPath) { $env:DCMDICTPATH = $dictPath }
+
+                    # Run dcmmkdir
+                    $dicomdirPath = Join-Path $discStaging "DICOMDIR"
+                    $cmdLine = "cd /d `"$discStaging`" && `"$dcmmkdir`" +r +id Weasis\DICOM +D DICOMDIR +I -Pgp"
+                    $output = cmd /c $cmdLine 2>&1
+
+                    if ($LASTEXITCODE -eq 0 -and (Test-Path $dicomdirPath)) {
+                        $dSize = [math]::Round((Get-Item $dicomdirPath).Length / 1KB)
+                        Log "[OK] DICOMDIR ($dSize KB)" 65
+                    } else {
+                        Log "[!] dcmmkdir failed (code: $LASTEXITCODE)" 65
+                    }
+                } else {
+                    Log "[!] No DICOM folder in staging" 65
+                }
             }
         }
 
