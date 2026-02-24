@@ -779,7 +779,13 @@ $workerScript = {
         # ======== STEP 10: SUMMARY ========
         UpdateStatus ($s.StepSummary)
         Log ">>> $($s.StepSummary)" 66
-        $totalSize = (Get-ChildItem -Path $discStaging -Recurse -File | Measure-Object -Property Length -Sum).Sum
+        # .NET GetFiles follows NTFS junctions (Get-ChildItem -Recurse does NOT)
+        try {
+            $allFiles = [System.IO.DirectoryInfo]::new($discStaging).GetFiles('*', [System.IO.SearchOption]::AllDirectories)
+            $totalSize = ($allFiles | Measure-Object -Property Length -Sum).Sum
+        } catch {
+            $totalSize = (Get-ChildItem -Path $discStaging -Recurse -File -Force | Measure-Object -Property Length -Sum).Sum
+        }
         $totalSizeMB = [math]::Round($totalSize / 1MB, 1)
         $dvdCapacity = 4700
         $percentage = [math]::Round(($totalSizeMB / $dvdCapacity) * 100, 1)
@@ -858,6 +864,9 @@ $workerScript = {
             $driveVendor = "$($recorder.VendorId.Trim()) $($recorder.ProductId.Trim())"
             Log "[OK] $driveVendor ($driveLetter)" 70
 
+            # Release discMaster — no longer needed after drive selection
+            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discMaster) | Out-Null } catch {}
+
             # Create disc format
             $discFormat = New-Object -ComObject IMAPI2.MsftDiscFormat2Data
             $discFormat.Recorder = $recorder
@@ -896,10 +905,38 @@ $workerScript = {
             Log "[..] $($s.Burning)" 78
             $discFormat.Write($stream)
 
+            # Release COM objects BEFORE eject (prevents Windows "Insert disc" dialog)
+            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($stream) | Out-Null } catch {}
+            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($result2) | Out-Null } catch {}
+            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fsImage) | Out-Null } catch {}
+            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discFormat) | Out-Null } catch {}
+
+            # Disable Media Change Notification before eject
+            try { $recorder.DisableMcn() } catch {}
+
             # Eject
             UpdateStatus ($s.Ejecting)
             Log "[..] $($s.Ejecting)" 95
             $recorder.EjectMedia()
+
+            # Re-enable MCN and release recorder
+            try { $recorder.EnableMcn() } catch {}
+            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($recorder) | Out-Null } catch {}
+            [GC]::Collect()
+            [GC]::WaitForPendingFinalizers()
+
+            # Close Windows "Insert disc" dialog if it appears after eject
+            Start-Sleep -Seconds 2
+            try {
+                $wsh = New-Object -ComObject WScript.Shell
+                foreach ($dlgTitle in @("Insert disc", "Introduceti un disc", "Introduceți un disc")) {
+                    if ($wsh.AppActivate($dlgTitle)) {
+                        Start-Sleep -Milliseconds 300
+                        $wsh.SendKeys("{ESCAPE}")
+                        break
+                    }
+                }
+            } catch {}
 
             Log "[OK] $($s.Success)" 97
             $sync.BurnSuccess = $true
@@ -939,6 +976,15 @@ $workerScript = {
         $sync.Completed = $true
 
     } catch {
+        # Cleanup COM objects on error to prevent Windows "Insert disc" dialog
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($stream) | Out-Null } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($result2) | Out-Null } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fsImage) | Out-Null } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discFormat) | Out-Null } catch {}
+        try { $recorder.EnableMcn() } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($recorder) | Out-Null } catch {}
+        [GC]::Collect()
+
         Log "[X] $($_.Exception.Message)" -1
         $sync.Failed = $true
         $sync.Completed = $true

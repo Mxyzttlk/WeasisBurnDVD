@@ -184,6 +184,7 @@ DICOMDIR at disc root references `DIR000\00000000\filename.DCM` — recognized b
 - Weasis caches OSGI bundles in `%USERPROFILE%\.weasis\cache-XXXXXXXX\`. Corrupted cache from failed launches can slow startup. Felix auto-cleans corrupted bundles on next launch but it takes time.
 - Windows 10+ blocks autorun on optical media. User must right-click > Open disc, then run start-weasis.bat.
 - **PACS Burner Settings dialog**: ComboBox text in "Burning" section (Writer, Viteza) is barely visible — dark gray on dark background. WPF default ComboBox template ignores `Foreground` property on the selected item display area. Tried: XAML style, ComboBoxItem with explicit Foreground, `TextElement.Foreground` attached property — none fully work. Needs custom ControlTemplate for ComboBox or alternative UI approach (e.g. TextBlock + popup).
+- **~~Windows "Insert disc" dialog after burn~~**: FIXED. IMAPI2 COM objects not released + MCN not disabled before eject → Windows detected empty drive. Fix: `ReleaseComObject` all burn COM objects before eject, `DisableMcn()` → `EjectMedia()` → `EnableMcn()`, `GC::Collect()`.
 
 ## Licensing — DVD Disc Components
 
@@ -630,6 +631,61 @@ Pattern: `Get-ChildItem -Recurse -Directory | Where ReparsePoint | ForEach rmdir
 - DICOMDIR approach updated: use PACS DICOMDIR directly (previous session fix documented)
 - CLAUDE.md burn pipeline table updated with optimization status
 
+### SESSION 2026-02-25 (session 2 — IMAPI2 COM cleanup + "Insert disc" dialog fix):
+
+#### Problem: Windows "Insert disc" dialog after burn
+After burning a DVD and ejecting, Windows showed "Please insert a disc into drive F:" dialog.
+This confused users and interfered with the workflow.
+
+#### Root cause:
+1. IMAPI2 COM objects (`$stream`, `$result`, `$fsImage`, `$discFormat`) stayed referenced after `Write()` — Windows thought a burn operation was still in progress
+2. `$recorder.EjectMedia()` triggered Media Change Notification (MCN) — Windows Shell detected empty drive and showed the prompt
+3. `$discMaster` and `$preCheck` COM objects from drive enumeration/pre-check were never released
+
+#### Fix implemented (both burn.ps1 and burn-gui.ps1):
+
+**Post-burn cleanup sequence (correct order is critical):**
+```powershell
+$discFormat.Write($stream)                    # 1. Burn complete
+
+# 2. Release burn-time COM objects BEFORE eject
+[Marshal]::ReleaseComObject($stream)
+[Marshal]::ReleaseComObject($result)
+[Marshal]::ReleaseComObject($fsImage)
+[Marshal]::ReleaseComObject($discFormat)
+
+$recorder.DisableMcn()                         # 3. Disable Media Change Notification
+$recorder.EjectMedia()                         # 4. Eject (Windows won't detect this)
+$recorder.EnableMcn()                          # 5. Re-enable MCN for normal drive operation
+[Marshal]::ReleaseComObject($recorder)         # 6. Release recorder
+[GC]::Collect(); [GC]::WaitForPendingFinalizers()  # 7. Force garbage collection
+```
+
+**Additional COM cleanup:**
+- `$discMaster` released after drive enumeration (both scripts)
+- `$preCheck` released in `finally` block after media pre-check (burn.ps1)
+- Error `catch` blocks also release all COM objects + call `GC::Collect()`
+
+**Why DisableMcn() is needed:**
+- MCN (Media Change Notification) is how Windows detects disc insertion/removal
+- `DisableMcn()` suppresses the notification → Windows doesn't know disc was ejected → no dialog
+- `EnableMcn()` after eject restores normal drive behavior for subsequent operations
+
+#### Files modified:
+- **`scripts/burn.ps1`** — `Burn-ToDisc`: COM cleanup + MCN; `Select-OpticalDrive`: release `$discMaster`; pre-check: release `$preCheck` in finally
+- **`scripts/burn-gui.ps1`** — STEP 11 (burn): COM cleanup + MCN; drive selection: release `$discMaster`; global catch: COM cleanup
+
+#### COM object lifecycle (burn.ps1):
+| Object | Created | Released (success) | Released (error) |
+|---|---|---|---|
+| `$discMaster` | `Select-OpticalDrive` | After enumeration | — |
+| `$preCheck` | Pre-check block | `finally` block | `finally` block |
+| `$stream` | `CreateResultImage().ImageStream` | Before eject | `catch` block |
+| `$result` | `CreateResultImage()` | Before eject | `catch` block |
+| `$fsImage` | `New-Object IMAPI2FS.MsftFileSystemImage` | Before eject | `catch` block |
+| `$discFormat` | `New-Object IMAPI2.MsftDiscFormat2Data` | Before eject | `catch` block |
+| `$recorder` | `Select-OpticalDrive` | After eject | `catch` block |
+
 ### NEXT STEPS:
 - Add "Open Source Attribution" section to `templates/README.html`
 - ~~Create .gitignore (tools/, downloads/ excluded)~~ DONE
@@ -638,6 +694,7 @@ Pattern: `Get-ChildItem -Recurse -Directory | Where ReparsePoint | ForEach rmdir
 - Test auto-unlock on locked session
 - Test burn with junctions (verify IMAPI2 reads through junctions correctly)
 - Test cleanup doesn't delete tools/weasis-portable/ source files
+- ~~Test "Insert disc" dialog no longer appears after burn~~ PENDING TEST
 
 ## Known Issues
 

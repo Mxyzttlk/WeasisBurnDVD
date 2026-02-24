@@ -574,10 +574,21 @@ function Generate-Dicomdir {
     }
 }
 
+function Get-DirectorySize {
+    # .NET GetFiles follows NTFS junctions (Get-ChildItem -Recurse does NOT)
+    param([string]$Path)
+    try {
+        $files = [System.IO.DirectoryInfo]::new($Path).GetFiles('*', [System.IO.SearchOption]::AllDirectories)
+        return ($files | Measure-Object -Property Length -Sum).Sum
+    } catch {
+        return (Get-ChildItem -Path $Path -Recurse -File -Force | Measure-Object -Property Length -Sum).Sum
+    }
+}
+
 function Show-DiscSummary {
     Write-Status "Sumar disc:"
 
-    $totalSize = (Get-ChildItem -Path $DiscStaging -Recurse -File | Measure-Object -Property Length -Sum).Sum
+    $totalSize = Get-DirectorySize $DiscStaging
     $totalSizeMB = [math]::Round($totalSize / 1MB, 1)
     $dvdCapacity = 4700  # MB approximate
 
@@ -596,7 +607,7 @@ function Show-DiscSummary {
     Write-Host "    Structura disc:" -ForegroundColor White
     Get-ChildItem -Path $DiscStaging -Depth 0 | ForEach-Object {
         if ($_.PSIsContainer) {
-            $dirSize = (Get-ChildItem -Path $_.FullName -Recurse -File | Measure-Object -Property Length -Sum).Sum
+            $dirSize = Get-DirectorySize $_.FullName
             $dirSizeMB = [math]::Round($dirSize / 1MB, 1)
             Write-Host "      [$dirSizeMB MB] $($_.Name)/" -ForegroundColor Gray
         } else {
@@ -628,6 +639,9 @@ function Select-OpticalDrive {
             Product    = $rec.ProductId.Trim()
         }
     }
+
+    # Release discMaster — no longer needed after enumeration
+    try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discMaster) | Out-Null } catch {}
 
     # If DriveID provided (from GUI settings), use it directly
     if ($DriveID) {
@@ -685,6 +699,9 @@ function Burn-ToDisc {
             $preCheck.ClientName = "WeasisBurn"
             $mediaReady = $preCheck.CurrentMediaStatus
         } catch { $mediaReady = $null }
+        finally {
+            if ($preCheck) { try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($preCheck) | Out-Null } catch {} }
+        }
 
         if ($mediaReady) {
             Write-Ok "Disc gol detectat in $($selectedDrive.Letter) - continui automat"
@@ -746,8 +763,36 @@ function Burn-ToDisc {
         Write-Host "    Ard discul... aceasta poate dura cateva minute." -ForegroundColor Yellow
         $discFormat.Write($stream)
 
+        # Release COM objects BEFORE eject (prevents Windows "Insert disc" dialog)
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($stream) | Out-Null } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($result) | Out-Null } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fsImage) | Out-Null } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discFormat) | Out-Null } catch {}
+
+        # Disable Media Change Notification before eject (prevents Windows from showing "Insert disc")
+        try { $recorder.DisableMcn() } catch {}
+
         # Eject
         $recorder.EjectMedia()
+
+        # Re-enable MCN and release recorder
+        try { $recorder.EnableMcn() } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($recorder) | Out-Null } catch {}
+        [GC]::Collect()
+        [GC]::WaitForPendingFinalizers()
+
+        # Close Windows "Insert disc" dialog if it appears after eject
+        Start-Sleep -Seconds 2
+        try {
+            $wsh = New-Object -ComObject WScript.Shell
+            foreach ($dlgTitle in @("Insert disc", "Introduceti un disc", "Introduceți un disc")) {
+                if ($wsh.AppActivate($dlgTitle)) {
+                    Start-Sleep -Milliseconds 300
+                    $wsh.SendKeys("{ESCAPE}")
+                    break
+                }
+            }
+        } catch {}
 
         Write-Ok "DISC ARDS CU SUCCES!"
         $script:burnSuccess = $true
@@ -755,6 +800,15 @@ function Burn-ToDisc {
         Write-Host "    Discul a fost ejectat. Poti sa-l folosesti." -ForegroundColor Green
 
     } catch {
+        # Cleanup COM objects on error too
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($stream) | Out-Null } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($result) | Out-Null } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fsImage) | Out-Null } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discFormat) | Out-Null } catch {}
+        try { $recorder.EnableMcn() } catch {}
+        try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($recorder) | Out-Null } catch {}
+        [GC]::Collect()
+
         Write-Err "Eroare la ardere: $($_.Exception.Message)"
         Write-Host ""
         Write-Host "    Posibile cauze:" -ForegroundColor Yellow
@@ -939,7 +993,7 @@ if ($SimulateOnly) {
     Write-Host ""
 
     # Simulate burn with progress bar based on real data size and burn speed
-    $totalSize = (Get-ChildItem -Path $DiscStaging -Recurse -File | Measure-Object -Property Length -Sum).Sum
+    $totalSize = Get-DirectorySize $DiscStaging
     $totalSizeMB = [math]::Round($totalSize / 1MB, 1)
     $speedKBs = $BurnSpeed * 1385  # 1x DVD = 1385 KB/s
     $totalSizeKB = $totalSize / 1024
