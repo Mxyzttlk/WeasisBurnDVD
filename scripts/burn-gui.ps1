@@ -466,6 +466,37 @@ $workerScript = {
         New-Item -ItemType Directory -Path $contentDir -Force | Out-Null
         Log "[OK] Staging: $discStaging" 8
 
+        # ======== STEP 2b: DEFENDER EXCLUSION ========
+        # Exclude staging dir from Windows Defender real-time scanning (permanent).
+        # Prevents 100% CPU on Antimalware Service Executable during ZIP extraction.
+        # On non-admin: self-elevates via UAC (user enters admin password once).
+        # Subsequent runs skip (exclusion already exists).
+        try {
+            $prefs = Get-MpPreference -ErrorAction Stop
+            if ($prefs.ExclusionPath -and ($prefs.ExclusionPath -contains $tempRoot)) {
+                Log "[OK] Defender: excludere deja configurata" 9
+            } else {
+                $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+                if ($isAdmin) {
+                    Add-MpPreference -ExclusionPath $tempRoot -ErrorAction Stop
+                    Log "[OK] Defender: excludere adaugata" 9
+                } else {
+                    Log "[!] Se solicita drepturi admin pentru excludere Defender..." 9
+                    $cmd = "Add-MpPreference -ExclusionPath '$tempRoot'"
+                    $proc = Start-Process powershell -Verb RunAs `
+                        -ArgumentList "-NoProfile","-Command",$cmd `
+                        -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
+                    if ($proc.ExitCode -eq 0) {
+                        Log "[OK] Defender: excludere adaugata" 9
+                    } else {
+                        Log "[!] Excluderea Defender nu a reusit" 9
+                    }
+                }
+            }
+        } catch {
+            Log "[!] UAC refuzat — Defender va scana la extragere" 9
+        }
+
         # ======== STEP 3: EXTRACT ZIP ========
         UpdateStatus ($s.StepExtract)
         Log ">>> $($s.StepExtract) $(Split-Path -Leaf $zipPath)" 10

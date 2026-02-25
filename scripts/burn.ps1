@@ -41,6 +41,50 @@ function Write-Err($msg) {
     Write-Host "    [EROARE] $msg" -ForegroundColor Red
 }
 
+function Add-DefenderExclusion {
+    # Exclude staging dir from Windows Defender real-time scanning (permanent).
+    # Without this, Antimalware Service Executable (MsMpEngine) scans every file
+    # during ZIP extraction, causing 100% CPU on large DICOM archives.
+    # Exclusion is permanent for %TEMP%\WeasisBurn — harmless, app-specific path.
+    # On non-admin accounts: self-elevates via UAC (user enters admin password once).
+
+    # 1. Check if exclusion already exists (no admin needed for Get-MpPreference)
+    try {
+        $prefs = Get-MpPreference -ErrorAction Stop
+        if ($prefs.ExclusionPath -and ($prefs.ExclusionPath -contains $TempRoot)) {
+            Write-Ok "Windows Defender: excludere deja configurata"
+            return
+        }
+    } catch {
+        # Can't read preferences — try to add anyway
+    }
+
+    # 2. Add exclusion — directly if admin, or self-elevate via UAC
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if ($isAdmin) {
+        try {
+            Add-MpPreference -ExclusionPath $TempRoot -ErrorAction Stop
+            Write-Ok "Windows Defender: excludere adaugata pentru $TempRoot"
+        } catch {}
+    } else {
+        Write-Host "    [!] Se solicita drepturi admin pentru excludere Defender..." -ForegroundColor Yellow
+        Write-Host "    [!] Introduceti parola de administrator in fereastra UAC" -ForegroundColor Yellow
+        try {
+            $cmd = "Add-MpPreference -ExclusionPath '$TempRoot'"
+            $proc = Start-Process powershell -Verb RunAs `
+                -ArgumentList "-NoProfile","-Command",$cmd `
+                -Wait -PassThru -WindowStyle Hidden -ErrorAction Stop
+            if ($proc.ExitCode -eq 0) {
+                Write-Ok "Windows Defender: excludere adaugata pentru $TempRoot"
+            } else {
+                Write-Host "    [!] Excluderea Defender nu a reusit (cod: $($proc.ExitCode))" -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "    [!] UAC refuzat — Defender va scana fisierele la extragere (CPU ridicat)" -ForegroundColor Yellow
+        }
+    }
+}
+
 function Test-WeasisPortable {
     $launcherJar = Join-Path $WeasisDir "weasis-launcher.jar"
     $jreX86Path  = Join-Path $WeasisDir "jre\windows\bin\java.exe"
@@ -867,6 +911,9 @@ Test-WeasisPortable
 
 # Step 2: Clean staging area
 Clear-Staging
+
+# Step 2b: Add Windows Defender exclusion for temp dir (prevents 100% CPU during extraction)
+Add-DefenderExclusion
 
 # Step 3: Extract ZIP
 $extractedDir = Expand-PatientZip -Zip $ZipPath
