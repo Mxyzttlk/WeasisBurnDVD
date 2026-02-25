@@ -934,7 +934,8 @@ $workerScript = {
             # BURN (blocking) — progress estimated by UI timer based on size/speed
             $speedKBs = $burnSpeed * 1385
             $totalSizeKB = $totalSize / 1024
-            $sync.BurnEstimatedSec = [math]::Max([math]::Ceiling($totalSizeKB / $speedKBs), 10)
+            # Add 90 sec overhead for IMAPI2 lead-in (laser calibration) + lead-out (session close/finalize)
+            $sync.BurnEstimatedSec = [math]::Max([math]::Ceiling($totalSizeKB / $speedKBs) + 90, 30)
             $sync.BurnStartTime = [DateTime]::Now
             $sync.BurnTotalSizeMB = $totalSizeMB
             $sync.BurnSpeed = $burnSpeed
