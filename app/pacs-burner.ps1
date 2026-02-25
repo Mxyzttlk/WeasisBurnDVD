@@ -1,5 +1,5 @@
 # ============================================================================
-# PACS Burner - Aplicatie WPF + WebView2
+# PACS Burner - WPF + WebView2 Application
 # Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
 # Unauthorized copying, modification, or distribution is strictly prohibited.
 # ============================================================================
