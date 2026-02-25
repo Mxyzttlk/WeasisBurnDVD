@@ -572,13 +572,15 @@ function Setup-WebView2Events {
             Update-Status "Conectat: $url" "#0F9B58"
 
             # Run automation after short delay (let React render)
-            $autoTimer = [System.Windows.Threading.DispatcherTimer]::new()
-            $autoTimer.Interval = [TimeSpan]::FromMilliseconds(800)
-            $autoTimer.Add_Tick({
+            # Dispose previous timer to prevent accumulation across navigations
+            if ($script:autoTimer) { $script:autoTimer.Stop(); $script:autoTimer = $null }
+            $script:autoTimer = [System.Windows.Threading.DispatcherTimer]::new()
+            $script:autoTimer.Interval = [TimeSpan]::FromMilliseconds(800)
+            $script:autoTimer.Add_Tick({
                 $this.Stop()
                 Run-PageAutomation
             })
-            $autoTimer.Start()
+            $script:autoTimer.Start()
         } else {
             # Suppress ConnectionAborted — happens normally when:
             # 1. Navigation redirects to a file download (server responds with Content-Disposition)
@@ -670,13 +672,15 @@ function Setup-WebView2Events {
     $coreWv2.Add_DOMContentLoaded({
         param($s, $e)
         # Re-inject observer after each page load
-        $autoTimer2 = [System.Windows.Threading.DispatcherTimer]::new()
-        $autoTimer2.Interval = [TimeSpan]::FromMilliseconds(1500)
-        $autoTimer2.Add_Tick({
+        # Dispose previous timer to prevent accumulation across page loads
+        if ($script:autoTimer2) { $script:autoTimer2.Stop(); $script:autoTimer2 = $null }
+        $script:autoTimer2 = [System.Windows.Threading.DispatcherTimer]::new()
+        $script:autoTimer2.Interval = [TimeSpan]::FromMilliseconds(1500)
+        $script:autoTimer2.Add_Tick({
             $this.Stop()
             Inject-ModalObserver
         })
-        $autoTimer2.Start()
+        $script:autoTimer2.Start()
     })
 }
 
@@ -765,7 +769,11 @@ function Inject-ModalObserver {
 
     $observerJs = @"
 (function() {
-    if (window._pacsBurnerObserver) return 'already-injected';
+    // Disconnect old observer before creating new one (prevents accumulation across page reloads)
+    if (window._pacsBurnerObserver) {
+        window._pacsBurnerObserver.disconnect();
+        window._pacsBurnerObserver = null;
+    }
 
     window._pacsBurnerObserver = new MutationObserver(function(mutations) {
         // Check for modal dialog
@@ -821,6 +829,8 @@ function Start-PacsDownload {
     #   - Timer stops when DownloadStarting event fires (or timeout 180s)
     $script:downloadPollCount = 0
 
+    # Dispose previous timer to prevent handler accumulation across multiple burns
+    if ($script:downloadPollTimer) { $script:downloadPollTimer.Stop(); $script:downloadPollTimer = $null }
     $script:downloadPollTimer = [System.Windows.Threading.DispatcherTimer]::new()
     $script:downloadPollTimer.Interval = [TimeSpan]::FromMilliseconds(1000)
     $script:downloadPollTimer.Add_Tick({
@@ -899,6 +909,8 @@ function Start-BurnProcess {
     $script:burnProc = Start-Process powershell -ArgumentList $psArgs -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru
 
     # Monitor burn process — when CMD closes, bring window to foreground + reload page
+    # Dispose previous timer to prevent handler accumulation across multiple burns
+    if ($script:burnMonitorTimer) { $script:burnMonitorTimer.Stop(); $script:burnMonitorTimer = $null }
     $script:burnMonitorTimer = [System.Windows.Threading.DispatcherTimer]::new()
     $script:burnMonitorTimer.Interval = [TimeSpan]::FromMilliseconds(500)
     $script:burnMonitorTimer.Add_Tick({
@@ -1283,6 +1295,19 @@ $window.Add_Loaded({
 })
 
 $window.Add_Closing({
+    # Stop all DispatcherTimers to prevent callbacks after dispose
+    try { if ($script:envPollTimer)        { $script:envPollTimer.Stop();        $script:envPollTimer = $null } } catch {}
+    try { if ($script:autoTimer)           { $script:autoTimer.Stop();           $script:autoTimer = $null } } catch {}
+    try { if ($script:autoTimer2)          { $script:autoTimer2.Stop();          $script:autoTimer2 = $null } } catch {}
+    try { if ($script:downloadPollTimer)   { $script:downloadPollTimer.Stop();   $script:downloadPollTimer = $null } } catch {}
+    try { if ($script:burnMonitorTimer)    { $script:burnMonitorTimer.Stop();    $script:burnMonitorTimer = $null } } catch {}
+
+    # Terminate burn process if still running
+    if ($script:burnProc -and -not $script:burnProc.HasExited) {
+        try { $script:burnProc.Kill() } catch {}
+        $script:burnProc = $null
+    }
+
     # Clean up WebView2
     if ($script:webView -and $script:webView.CoreWebView2) {
         try {
