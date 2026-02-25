@@ -612,9 +612,14 @@ function Setup-WebView2Events {
                 $txtZipInfo.Text = "Descarcare: $filename ..."
             })
 
-            # Monitor download progress
+            # Monitor download progress — throttled to max 2 updates/sec (500ms)
+            # BytesReceivedChanged fires 100+ times/sec, Dispatcher.Invoke on each = CPU killer
+            $script:lastProgressUpdate = [DateTime]::MinValue
             $e.DownloadOperation.Add_BytesReceivedChanged({
                 param($op, $ev2)
+                $now = [DateTime]::Now
+                if (($now - $script:lastProgressUpdate).TotalMilliseconds -lt 500) { return }
+                $script:lastProgressUpdate = $now
                 $window.Dispatcher.Invoke([Action]{
                     $received = $op.BytesReceived
                     $total = $op.TotalBytesToReceive
@@ -774,35 +779,39 @@ function Inject-ModalObserver {
         window._pacsBurnerObserver.disconnect();
         window._pacsBurnerObserver = null;
     }
+    if (window._pacsBurnerDebounce) {
+        clearTimeout(window._pacsBurnerDebounce);
+        window._pacsBurnerDebounce = null;
+    }
 
-    window._pacsBurnerObserver = new MutationObserver(function(mutations) {
-        // Check for modal dialog
+    // Debounced handler — React re-renders trigger 100+ mutations/sec,
+    // but we only need to check for modal once per 500ms
+    function checkModal() {
         var modal = document.querySelector('.modal-dialog');
         if (!modal) return;
-
-        // Check if modal is for download (title contains "Descarcare")
         var title = modal.querySelector('.modal-title');
         if (!title || title.textContent.indexOf('Descarcare') < 0) return;
-
-        // Find and check "Exclude Viewer" checkbox
         var labels = modal.querySelectorAll('.form-group label.checkbox-inline');
         for (var i = 0; i < labels.length; i++) {
-            var text = labels[i].textContent.trim();
-            if (text === 'Exclude Viewer') {
+            if (labels[i].textContent.trim() === 'Exclude Viewer') {
                 var cb = labels[i].querySelector('input[type="checkbox"]');
-                if (cb && !cb.checked) {
-                    cb.click();
-                }
+                if (cb && !cb.checked) cb.click();
                 break;
             }
         }
+    }
+
+    window._pacsBurnerObserver = new MutationObserver(function(mutations) {
+        if (window._pacsBurnerDebounce) return;
+        window._pacsBurnerDebounce = setTimeout(function() {
+            window._pacsBurnerDebounce = null;
+            checkModal();
+        }, 500);
     });
 
     window._pacsBurnerObserver.observe(document.body, {
         childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['class', 'style']
+        subtree: true
     });
 
     return 'observer-injected';
@@ -832,14 +841,19 @@ function Start-PacsDownload {
     # Dispose previous timer to prevent handler accumulation across multiple burns
     if ($script:downloadPollTimer) { $script:downloadPollTimer.Stop(); $script:downloadPollTimer = $null }
     $script:downloadPollTimer = [System.Windows.Threading.DispatcherTimer]::new()
-    $script:downloadPollTimer.Interval = [TimeSpan]::FromMilliseconds(1000)
+    # Start fast (500ms) for UI responsiveness, slow down after modal is found
+    $script:downloadPollTimer.Interval = [TimeSpan]::FromMilliseconds(500)
     $script:downloadPollTimer.Add_Tick({
         $script:downloadPollCount++
 
-        # Stop after 480 sec / 8 min (PACS server may need time to prepare large ZIP files)
-        if ($script:downloadPollCount -gt 480) {
+        # Adaptive interval: fast first 10s (500ms), then slow (3s) to reduce CPU
+        if ($script:downloadPollCount -eq 20) {
+            $this.Interval = [TimeSpan]::FromMilliseconds(3000)
+        }
+
+        # Stop after 160 ticks (~8 min with adaptive intervals)
+        if ($script:downloadPollCount -gt 160) {
             $this.Stop()
-            # Don't reset autoBurnPending — download may still start later
             Update-Status "Astept descarcarea de pe PACS..." "#FFA500"
             return
         }
@@ -937,7 +951,7 @@ function Start-BurnProcess {
             $window.Activate()
         })
 
-        # Reload page to clear download modal - auto-login handles re-login
+        # Reload page to reset React SPA state after download + auto-login handles re-login
         $script:webView.CoreWebView2.Reload()
         Update-Status "Pagina reincarcata - auto-login..." "#FFA500"
     })
@@ -988,7 +1002,17 @@ function Connect-ToNetwork {
 # Optical Drive Detection
 # ============================================================================
 
+# Cached drive detection — COM instantiation is very slow on weak CPUs (200-500ms).
+# Cache is valid for 10 seconds; subsequent calls return cached result instantly.
+$script:cachedDrives = $null
+$script:lastDriveScan = [DateTime]::MinValue
+
 function Detect-OpticalDrives {
+    param([switch]$ForceRefresh)
+    if (-not $ForceRefresh -and $script:cachedDrives -ne $null) {
+        $elapsed = ([DateTime]::Now - $script:lastDriveScan).TotalSeconds
+        if ($elapsed -lt 10) { return $script:cachedDrives }
+    }
     $drives = @()
     try {
         $discMaster = New-Object -ComObject IMAPI2.MsftDiscMaster2
@@ -1003,10 +1027,14 @@ function Detect-OpticalDrives {
                 Product = $rec.ProductId.Trim()
                 Label   = "$($rec.VendorId.Trim()) $($rec.ProductId.Trim()) ($($rec.VolumePathNames | Select-Object -First 1))"
             }
+            [System.Runtime.InteropServices.Marshal]::ReleaseComObject($rec) | Out-Null
         }
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discMaster) | Out-Null
     } catch {
         # IMAPI2 not available
     }
+    $script:cachedDrives = $drives
+    $script:lastDriveScan = [DateTime]::Now
     return $drives
 }
 
@@ -1100,8 +1128,9 @@ function Show-SettingsDialog {
     }
     Refresh-DriveList
 
-    # Refresh drives button
+    # Refresh drives button — force rescan (user explicitly requested)
     $btnRefreshDrives.Add_Click({
+        $script:lastDriveScan = [DateTime]::MinValue
         Refresh-DriveList
     })
 
