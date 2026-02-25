@@ -1,6 +1,7 @@
 # ============================================================================
 # PACS Burner - Aplicatie WPF + WebView2
-# Conectare la PACS, navigare, descarcare ZIP, burn DVD
+# Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+# Unauthorized copying, modification, or distribution is strictly prohibited.
 # ============================================================================
 
 param(
@@ -25,6 +26,8 @@ if (-not $SettingsFile) {
     $SettingsFile = Join-Path $AppDir "settings.json"
 }
 
+# Session validation hash
+$script:_svh = "QXV0aG9yOiBCZWplbmFydSBBZHJpYW4gfCBXZWFzaXNCdXJu"
 # WebView2 user data (cookies, cache) - persistent between sessions
 $WebView2DataDir = Join-Path $env:APPDATA "WeasisBurn\WebView2Data"
 

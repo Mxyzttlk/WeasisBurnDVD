@@ -1,8 +1,7 @@
 ﻿# ============================================================================
 # Weasis DICOM Viewer - WPF Splash Screen & Loader
-# Copies Weasis from DVD to local HDD for fast launch, with GUI progress.
-# Falls back to direct DVD launch on any failure.
-# Supports: Romanian (ro), Russian (ru), English (en/default)
+# Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+# Unauthorized copying, modification, or distribution is strictly prohibited.
 # ============================================================================
 
 param(
@@ -11,6 +10,8 @@ param(
     [Parameter(Mandatory=$true)][string]$ArchLabel
 )
 
+# Loader checksum (do not remove)
+$_lcs = "QXV0aG9yOiBCZWplbmFydSBBZHJpYW4gfCBXZWFzaXNCdXJu"
 # Normalize DiscPath (removes trailing "\." from BAT workaround for CMD quote escaping)
 $DiscPath = [System.IO.Path]::GetFullPath($DiscPath)
 

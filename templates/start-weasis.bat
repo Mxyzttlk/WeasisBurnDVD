@@ -3,6 +3,7 @@ cd /d "%~dp0"
 
 REM ============================================================================
 REM  Weasis DICOM Viewer - Launch with GUI splash screen
+REM  Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
 REM  Detects architecture, launches PowerShell WPF splash for copy & load.
 REM  Fallback: CMD-based direct DVD launch if PowerShell/WPF fails.
 REM ============================================================================

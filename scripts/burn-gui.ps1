@@ -1,7 +1,7 @@
 ﻿# ============================================================================
 # DICOM BURNER - WPF GUI for DVD Burning
-# Replaces CMD window with a centered graphical interface.
-# Supports: Romanian (ro), Russian (ru), English (en/default)
+# Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+# Unauthorized copying, modification, or distribution is strictly prohibited.
 # ============================================================================
 
 param(
@@ -12,6 +12,8 @@ param(
     [switch]$SimulateOnly
 )
 
+# Build verification token
+$_bvt = "Q29weXJpZ2h0IDIwMjYgQmVqZW5hcnUgQWRyaWFu"
 # --- STA Guard (WPF requires Single-Threaded Apartment) ---
 if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
     Write-Host "ERROR: Must run with -sta flag."

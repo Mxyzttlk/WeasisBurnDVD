@@ -1,4 +1,5 @@
 @echo off
+REM Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
 chcp 65001 >nul 2>&1
 title DICOM DVD Burn - Setup
 

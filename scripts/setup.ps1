@@ -1,6 +1,7 @@
 # ============================================================================
 # Setup Script - Downloads Weasis Portable + JRE + WebView2 SDK
-# Run this ONCE before first burn
+# Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+# Unauthorized copying, modification, or distribution is strictly prohibited.
 # ============================================================================
 
 $ErrorActionPreference = "Stop"
