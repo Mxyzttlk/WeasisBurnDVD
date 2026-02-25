@@ -931,10 +931,17 @@ $workerScript = {
             try { $discFormat.SetWriteSpeed($speedKBs, $false) } catch {}
             Log "[OK] ${burnSpeed}x ($speedKBs KB/s)" 77
 
-            # BURN (blocking)
+            # BURN (blocking) — progress estimated by UI timer based on size/speed
+            $speedKBs = $burnSpeed * 1385
+            $totalSizeKB = $totalSize / 1024
+            $sync.BurnEstimatedSec = [math]::Max([math]::Ceiling($totalSizeKB / $speedKBs), 10)
+            $sync.BurnStartTime = [DateTime]::Now
+            $sync.BurnTotalSizeMB = $totalSizeMB
+            $sync.BurnSpeed = $burnSpeed
             UpdateStatus ($s.Burning)
             Log "[..] $($s.Burning)" 78
             $discFormat.Write($stream)
+            $sync.BurnStartTime = $null  # signal burn finished
 
             # Release COM objects BEFORE eject (prevents Windows "Insert disc" dialog)
             try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($stream) | Out-Null } catch {}
@@ -1059,6 +1066,23 @@ $animTimer.Add_Tick({
 $completionTimer = New-Object System.Windows.Threading.DispatcherTimer
 $completionTimer.Interval = [TimeSpan]::FromMilliseconds(500)
 $completionTimer.Add_Tick({
+    # Update progress bar during burn (time-based estimation)
+    if ($syncHash.BurnStartTime -and -not $syncHash.Completed) {
+        $elapsed = ([DateTime]::Now - $syncHash.BurnStartTime).TotalSeconds
+        $estimated = $syncHash.BurnEstimatedSec
+        if ($estimated -gt 0) {
+            $pct = [math]::Min($elapsed / $estimated, 0.99)
+            # Map 0-99% burn progress to 78-95 on progress bar
+            $progressBar.Value = 78 + [int]($pct * 17)
+            # Phase detection + status text
+            $writtenMB = [math]::Round($syncHash.BurnTotalSizeMB * $pct, 1)
+            $pctInt = [int]($pct * 100)
+            if ($pct -lt 0.06) { $phase = $strings.PhaseLeadIn }
+            elseif ($pct -lt 0.92) { $phase = $strings.PhaseWrite }
+            else { $phase = $strings.PhaseLeadOut }
+            $txtStatus.Text = "$phase - $pctInt% ($writtenMB / $($syncHash.BurnTotalSizeMB) MB)"
+        }
+    }
     if (-not $syncHash.Completed) { return }
     $completionTimer.Stop()
     $animTimer.Stop()
