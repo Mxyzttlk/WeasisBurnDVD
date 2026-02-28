@@ -446,20 +446,21 @@ function Update-Slide {
 # ============================================================================
 # UPDATE LANGUAGE BUTTONS (highlight active)
 # ============================================================================
-function Update-LangButtons {
-    $activeBg   = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#0F9B58"))
-    $activeFg   = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("White"))
-    $inactiveBg = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#444444"))
-    $inactiveFg = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#AAAAAA"))
+# Pre-create frozen brushes (reused on every lang switch — no GC churn)
+$script:activeBg   = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#0F9B58")); $script:activeBg.Freeze()
+$script:activeFg   = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("White"));   $script:activeFg.Freeze()
+$script:inactiveBg = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#444444")); $script:inactiveBg.Freeze()
+$script:inactiveFg = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#AAAAAA")); $script:inactiveFg.Freeze()
 
-    $btnLangRO.Background = $inactiveBg; $btnLangRO.Foreground = $inactiveFg
-    $btnLangRU.Background = $inactiveBg; $btnLangRU.Foreground = $inactiveFg
-    $btnLangEN.Background = $inactiveBg; $btnLangEN.Foreground = $inactiveFg
+function Update-LangButtons {
+    $btnLangRO.Background = $script:inactiveBg; $btnLangRO.Foreground = $script:inactiveFg
+    $btnLangRU.Background = $script:inactiveBg; $btnLangRU.Foreground = $script:inactiveFg
+    $btnLangEN.Background = $script:inactiveBg; $btnLangEN.Foreground = $script:inactiveFg
 
     switch ($script:currentLang) {
-        "ro" { $btnLangRO.Background = $activeBg; $btnLangRO.Foreground = $activeFg }
-        "ru" { $btnLangRU.Background = $activeBg; $btnLangRU.Foreground = $activeFg }
-        "en" { $btnLangEN.Background = $activeBg; $btnLangEN.Foreground = $activeFg }
+        "ro" { $btnLangRO.Background = $script:activeBg; $btnLangRO.Foreground = $script:activeFg }
+        "ru" { $btnLangRU.Background = $script:activeBg; $btnLangRU.Foreground = $script:activeFg }
+        "en" { $btnLangEN.Background = $script:activeBg; $btnLangEN.Foreground = $script:activeFg }
     }
 }
 

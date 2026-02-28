@@ -55,6 +55,8 @@ function Get-Strings {
                 Success       = "DISC ARDS CU SUCCES!"
                 SimSuccess    = "SIMULARE FINALIZATA!"
                 BtnClose      = "Inchide"
+                BtnContinue   = "Continuare"
+                DiscSwap      = "Introdu un disc gol si apasa Continuare."
                 NoDrive       = "Nu am gasit nicio unitate optica!"
                 NoDisc        = "Discul nu este gol sau nu este inserat corect."
                 NoZip         = "Fisierul ZIP nu exista!"
@@ -93,6 +95,8 @@ function Get-Strings {
                 Success       = "ДИСК ЗАПИСАН УСПЕШНО!"
                 SimSuccess    = "СИМУЛЯЦИЯ ЗАВЕРШЕНА!"
                 BtnClose      = "Закрыть"
+                BtnContinue   = "Продолжить"
+                DiscSwap      = "Вставьте чистый диск и нажмите Продолжить."
                 NoDrive       = "Оптический привод не найден!"
                 NoDisc        = "Диск не вставлен или не пуст."
                 NoZip         = "ZIP-файл не найден!"
@@ -131,6 +135,8 @@ function Get-Strings {
                 Success       = "DISC BURNED SUCCESSFULLY!"
                 SimSuccess    = "SIMULATION COMPLETE!"
                 BtnClose      = "Close"
+                BtnContinue   = "Continue"
+                DiscSwap      = "Insert a blank disc and press Continue."
                 NoDrive       = "No optical drive found!"
                 NoDisc        = "Disc is not blank or not inserted."
                 NoZip         = "ZIP file not found!"
@@ -250,23 +256,42 @@ $xaml = @"
                 <Grid Grid.Row="6">
                     <TextBlock x:Name="txtMode" FontSize="10" Foreground="#555555"
                                VerticalAlignment="Center" HorizontalAlignment="Left"/>
-                    <Button x:Name="btnDone" Content="Close" Width="120" Height="32"
-                            FontSize="13" FontWeight="SemiBold" Cursor="Hand"
-                            Foreground="White" Background="#D32F2F" BorderThickness="0"
-                            HorizontalAlignment="Right" Visibility="Collapsed">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="6" Padding="12,4">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="border" Property="Background" Value="#B71C1C"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="btnContinue" Content="Continue" Width="140" Height="32" Margin="0,0,8,0"
+                                FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                                Foreground="White" Background="#0F9B58" BorderThickness="0"
+                                Visibility="Collapsed">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="6" Padding="12,4">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="border" Property="Background" Value="#0DAE4F"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                        <Button x:Name="btnDone" Content="Close" Width="120" Height="32"
+                                FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                                Foreground="White" Background="#D32F2F" BorderThickness="0"
+                                Visibility="Collapsed">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="border" Background="{TemplateBinding Background}" CornerRadius="6" Padding="12,4">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="border" Property="Background" Value="#B71C1C"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </StackPanel>
                 </Grid>
             </Grid>
         </Grid>
@@ -293,6 +318,7 @@ $txtLog      = $window.FindName("txtLog")
 $scrollLog   = $window.FindName("scrollLog")
 $txtMode     = $window.FindName("txtMode")
 $btnDone     = $window.FindName("btnDone")
+$btnContinue = $window.FindName("btnContinue")
 $btnMinimize = $window.FindName("btnMinimize")
 $btnCloseWin = $window.FindName("btnCloseWin")
 
@@ -323,6 +349,9 @@ $syncHash = [hashtable]::Synchronized(@{
     SimulateOnly = [bool]$SimulateOnly
     ProjectRoot = $ProjectRoot
     BurnSuccess = $false
+    DiscError   = $false
+    RetryBurn   = $false
+    CancelBurn  = $false
 })
 
 # ============================================================================
@@ -885,116 +914,142 @@ $workerScript = {
             $sync.BurnSuccess = $true
 
         } else {
-            # --- REAL BURN ---
-            UpdateStatus ($s.StepBurn)
-            Log ">>> $($s.StepBurn)" 69
+            # --- REAL BURN (with retry loop for disc swap) ---
+            $burnDone = $false
+            while (-not $burnDone) {
+                UpdateStatus ($s.StepBurn)
+                Log ">>> $($s.StepBurn)" 69
 
-            # Find optical drive
-            $discMaster = New-Object -ComObject IMAPI2.MsftDiscMaster2
-            if ($discMaster.Count -eq 0) { throw $s.NoDrive }
+                # Find optical drive
+                $discMaster = New-Object -ComObject IMAPI2.MsftDiscMaster2
+                if ($discMaster.Count -eq 0) { throw $s.NoDrive }
 
-            $recorder = $null
-            if ($driveID) {
-                for ($di = 0; $di -lt $discMaster.Count; $di++) {
-                    if ($discMaster.Item($di) -eq $driveID) {
-                        $recorder = New-Object -ComObject IMAPI2.MsftDiscRecorder2
-                        $recorder.InitializeDiscRecorder($discMaster.Item($di))
-                        break
+                $recorder = $null
+                if ($driveID) {
+                    for ($di = 0; $di -lt $discMaster.Count; $di++) {
+                        if ($discMaster.Item($di) -eq $driveID) {
+                            $recorder = New-Object -ComObject IMAPI2.MsftDiscRecorder2
+                            $recorder.InitializeDiscRecorder($discMaster.Item($di))
+                            break
+                        }
                     }
                 }
-            }
-            if (-not $recorder) {
-                $recorder = New-Object -ComObject IMAPI2.MsftDiscRecorder2
-                $recorder.InitializeDiscRecorder($discMaster.Item(0))
-            }
-            $driveLetter = ($recorder.VolumePathNames | Select-Object -First 1)
-            $driveVendor = "$($recorder.VendorId.Trim()) $($recorder.ProductId.Trim())"
-            Log "[OK] $driveVendor ($driveLetter)" 70
-
-            # Release discMaster — no longer needed after drive selection
-            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discMaster) | Out-Null } catch {}
-
-            # Create disc format
-            $discFormat = New-Object -ComObject IMAPI2.MsftDiscFormat2Data
-            $discFormat.Recorder = $recorder
-            $discFormat.ClientName = "WeasisBurn"
-
-            # Check media
-            if (-not $discFormat.CurrentMediaStatus) {
-                Log "[X] $($s.NoDisc)" 70
-                throw $s.NoDisc
-            }
-
-            # Create file system image
-            $fsImage = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
-            $fsImage.FileSystemsToCreate = 3  # ISO9660 + Joliet
-            $fsImage.VolumeName = if ($discLabel) { $discLabel } else { "DICOM" }
-            $fsImage.FreeMediaBlocks = $discFormat.TotalSectorsOnMedia
-            $capacityMB = [math]::Round($discFormat.TotalSectorsOnMedia * 2048 / 1MB)
-            Log "[OK] $capacityMB MB" 72
-
-            # Add files
-            Log "[..] Adding files..." 73
-            $fsImage.Root.AddTree($discStaging, $false)
-
-            # Generate ISO
-            Log "[..] ISO image..." 75
-            $result2 = $fsImage.CreateResultImage()
-            $stream = $result2.ImageStream
-
-            # Set speed
-            $speedKBs = $burnSpeed * 1385
-            try { $discFormat.SetWriteSpeed($speedKBs, $false) } catch {}
-            Log "[OK] ${burnSpeed}x ($speedKBs KB/s)" 77
-
-            # BURN (blocking) — progress estimated by UI timer based on size/speed
-            $speedKBs = $burnSpeed * 1385
-            $totalSizeKB = $totalSize / 1024
-            # Add 90 sec overhead for IMAPI2 lead-in (laser calibration) + lead-out (session close/finalize)
-            $sync.BurnEstimatedSec = [math]::Max([math]::Ceiling($totalSizeKB / $speedKBs) + 90, 30)
-            $sync.BurnStartTime = [DateTime]::Now
-            $sync.BurnTotalSizeMB = $totalSizeMB
-            $sync.BurnSpeed = $burnSpeed
-            UpdateStatus ($s.Burning)
-            Log "[..] $($s.Burning)" 78
-            $discFormat.Write($stream)
-            $sync.BurnStartTime = $null  # signal burn finished
-
-            # Release COM objects BEFORE eject (prevents Windows "Insert disc" dialog)
-            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($stream) | Out-Null } catch {}
-            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($result2) | Out-Null } catch {}
-            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fsImage) | Out-Null } catch {}
-            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discFormat) | Out-Null } catch {}
-
-            # Disable Media Change Notification before eject
-            try { $recorder.DisableMcn() } catch {}
-
-            # Eject
-            UpdateStatus ($s.Ejecting)
-            Log "[..] $($s.Ejecting)" 95
-            $recorder.EjectMedia()
-
-            # Re-enable MCN and release recorder
-            try { $recorder.EnableMcn() } catch {}
-            try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($recorder) | Out-Null } catch {}
-            [GC]::Collect()
-            [GC]::WaitForPendingFinalizers()
-
-            # Close Windows "Insert disc" dialog if it appears after eject
-            Start-Sleep -Seconds 2
-            try {
-                $wsh = New-Object -ComObject WScript.Shell
-                foreach ($dlgTitle in @("Insert disc", "Introduceti un disc", "Introduceți un disc")) {
-                    if ($wsh.AppActivate($dlgTitle)) {
-                        Start-Sleep -Milliseconds 300
-                        $wsh.SendKeys("{ESCAPE}")
-                        break
-                    }
+                if (-not $recorder) {
+                    $recorder = New-Object -ComObject IMAPI2.MsftDiscRecorder2
+                    $recorder.InitializeDiscRecorder($discMaster.Item(0))
                 }
-            } catch {}
+                $driveLetter = ($recorder.VolumePathNames | Select-Object -First 1)
+                $driveVendor = "$($recorder.VendorId.Trim()) $($recorder.ProductId.Trim())"
+                Log "[OK] $driveVendor ($driveLetter)" 70
 
-            Log "[OK] $($s.Success)" 97
-            $sync.BurnSuccess = $true
+                # Release discMaster - no longer needed after drive selection
+                try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discMaster) | Out-Null } catch {}
+
+                # Create disc format
+                $discFormat = New-Object -ComObject IMAPI2.MsftDiscFormat2Data
+                $discFormat.Recorder = $recorder
+                $discFormat.ClientName = "WeasisBurn"
+
+                # Check media - if not blank, allow disc swap and retry
+                if (-not $discFormat.CurrentMediaStatus) {
+                    Log "[!] $($s.NoDisc)" 70
+                    Log "[..] $($s.DiscSwap)" 70
+
+                    # Release COM objects before waiting
+                    try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discFormat) | Out-Null } catch {}
+                    try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($recorder) | Out-Null } catch {}
+                    [GC]::Collect()
+
+                    # Signal UI to show Continue/Close buttons
+                    $sync.DiscError = $true
+
+                    # Wait for user to click Continue or Close
+                    while ($sync.DiscError -and -not $sync.CancelBurn) {
+                        Start-Sleep -Milliseconds 500
+                    }
+
+                    # User clicked Close - abort
+                    if ($sync.CancelBurn) {
+                        throw $s.NoDisc
+                    }
+
+                    # User clicked Continue - retry burn loop
+                    $sync.RetryBurn = $false
+                    continue
+                }
+
+                # Create file system image
+                $fsImage = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
+                $fsImage.FileSystemsToCreate = 3  # ISO9660 + Joliet
+                $fsImage.VolumeName = if ($discLabel) { $discLabel } else { "DICOM" }
+                $fsImage.FreeMediaBlocks = $discFormat.TotalSectorsOnMedia
+                $capacityMB = [math]::Round($discFormat.TotalSectorsOnMedia * 2048 / 1MB)
+                Log "[OK] $capacityMB MB" 72
+
+                # Add files
+                Log "[..] Adding files..." 73
+                $fsImage.Root.AddTree($discStaging, $false)
+
+                # Generate ISO
+                Log "[..] ISO image..." 75
+                $result2 = $fsImage.CreateResultImage()
+                $stream = $result2.ImageStream
+
+                # Set speed
+                $speedKBs = $burnSpeed * 1385
+                try { $discFormat.SetWriteSpeed($speedKBs, $false) } catch {}
+                Log "[OK] ${burnSpeed}x ($speedKBs KB/s)" 77
+
+                # BURN (blocking) - progress estimated by UI timer based on size/speed
+                $speedKBs = $burnSpeed * 1385
+                $totalSizeKB = $totalSize / 1024
+                # Add 90 sec overhead for IMAPI2 lead-in (laser calibration) + lead-out (session close/finalize)
+                $sync.BurnEstimatedSec = [math]::Max([math]::Ceiling($totalSizeKB / $speedKBs) + 90, 30)
+                $sync.BurnStartTime = [DateTime]::Now
+                $sync.BurnTotalSizeMB = $totalSizeMB
+                $sync.BurnSpeed = $burnSpeed
+                UpdateStatus ($s.Burning)
+                Log "[..] $($s.Burning)" 78
+                $discFormat.Write($stream)
+                $sync.BurnStartTime = $null  # signal burn finished
+
+                # Release COM objects BEFORE eject (prevents Windows "Insert disc" dialog)
+                try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($stream) | Out-Null } catch {}
+                try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($result2) | Out-Null } catch {}
+                try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fsImage) | Out-Null } catch {}
+                try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discFormat) | Out-Null } catch {}
+
+                # Disable Media Change Notification before eject
+                try { $recorder.DisableMcn() } catch {}
+
+                # Eject
+                UpdateStatus ($s.Ejecting)
+                Log "[..] $($s.Ejecting)" 95
+                $recorder.EjectMedia()
+
+                # Re-enable MCN and release recorder
+                try { $recorder.EnableMcn() } catch {}
+                try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($recorder) | Out-Null } catch {}
+                [GC]::Collect()
+                [GC]::WaitForPendingFinalizers()
+
+                # Close Windows "Insert disc" dialog if it appears after eject
+                Start-Sleep -Seconds 2
+                try {
+                    $wsh = New-Object -ComObject WScript.Shell
+                    foreach ($dlgTitle in @("Insert disc", "Introduceti un disc", "Introduceți un disc")) {
+                        if ($wsh.AppActivate($dlgTitle)) {
+                            Start-Sleep -Milliseconds 300
+                            $wsh.SendKeys("{ESCAPE}")
+                            break
+                        }
+                    }
+                } catch {}
+
+                Log "[OK] $($s.Success)" 97
+                $sync.BurnSuccess = $true
+                $burnDone = $true
+            }  # end while (-not $burnDone)
         }
 
         # ======== STEP 12: CLEANUP ========
@@ -1068,6 +1123,14 @@ function Start-Worker {
 
 # --- Animated dots for status ---
 $script:dotIndex = 0
+$script:discErrorShown = $false
+
+# Pre-create frozen brushes (reused in timer callbacks — avoids GC churn)
+$script:brushOrange  = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#FFA726")); $script:brushOrange.Freeze()
+$script:brushGreen   = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#0F9B58")); $script:brushGreen.Freeze()
+$script:brushSuccess = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#4CAF50")); $script:brushSuccess.Freeze()
+$script:brushError   = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#FF5252")); $script:brushError.Freeze()
+$script:brushDefault = New-Object System.Windows.Media.SolidColorBrush ([System.Windows.Media.ColorConverter]::ConvertFromString("#CCCCCC")); $script:brushDefault.Freeze()
 $animTimer = New-Object System.Windows.Threading.DispatcherTimer
 $animTimer.Interval = [TimeSpan]::FromMilliseconds(400)
 $animTimer.Add_Tick({
@@ -1100,6 +1163,29 @@ $completionTimer.Add_Tick({
             $txtStatus.Text = "$phase - $pctInt% ($writtenMB / $($syncHash.BurnTotalSizeMB) MB)"
         }
     }
+    # --- DISC ERROR: show Continue + Close (no countdown) ---
+    if ($syncHash.DiscError -and -not $script:discErrorShown) {
+        $script:discErrorShown = $true
+        $animTimer.Stop()  # Stop dot animation (prevents overwriting status text)
+        $txtStatus.Text = $strings.NoDisc
+        $txtStatus.Foreground = $script:brushOrange
+        $progressBar.Foreground = $script:brushOrange
+        $btnContinue.Content = $strings.BtnContinue
+        $btnContinue.Visibility = "Visible"
+        $btnDone.Content = $strings.BtnClose
+        $btnDone.Visibility = "Visible"
+    }
+
+    # --- DISC ERROR cleared (user clicked Continue) - hide buttons, resume ---
+    if (-not $syncHash.DiscError -and $script:discErrorShown) {
+        $script:discErrorShown = $false
+        $animTimer.Start()  # Resume dot animation
+        $btnContinue.Visibility = "Collapsed"
+        $btnDone.Visibility = "Collapsed"
+        $txtStatus.Foreground = $script:brushDefault
+        $progressBar.Foreground = $script:brushGreen
+    }
+
     if (-not $syncHash.Completed) { return }
     $completionTimer.Stop()
     $animTimer.Stop()
@@ -1108,8 +1194,8 @@ $completionTimer.Add_Tick({
         # SUCCESS
         $msg = if ($syncHash.SimulateOnly) { $strings.SimSuccess } else { $strings.Success }
         $txtStatus.Text = $msg
-        $txtStatus.Foreground = (New-Object System.Windows.Media.SolidColorBrush(
-            [System.Windows.Media.ColorConverter]::ConvertFromString("#4CAF50")))
+        $txtStatus.Foreground = $script:brushSuccess
+        $btnContinue.Visibility = "Collapsed"
         $btnDone.Visibility = "Visible"
 
         # Auto-close after 5 seconds
@@ -1129,10 +1215,9 @@ $completionTimer.Add_Tick({
         $closeTimer.Start()
     } else {
         # ERROR
-        $txtStatus.Foreground = (New-Object System.Windows.Media.SolidColorBrush(
-            [System.Windows.Media.ColorConverter]::ConvertFromString("#FF5252")))
-        $progressBar.Foreground = (New-Object System.Windows.Media.SolidColorBrush(
-            [System.Windows.Media.ColorConverter]::ConvertFromString("#FF5252")))
+        $txtStatus.Foreground = $script:brushError
+        $progressBar.Foreground = $script:brushError
+        $btnContinue.Visibility = "Collapsed"
         $btnDone.Visibility = "Visible"
     }
 })
@@ -1147,13 +1232,33 @@ $window.Add_Loaded({
     $completionTimer.Start()
 })
 
-$btnDone.Add_Click({ $window.Close() })
+# --- Continue button: signal worker to retry burn ---
+$btnContinue.Add_Click({ param($s,$e)
+    $syncHash.DiscError = $false
+    $syncHash.RetryBurn = $true
+})
 
-$btnMinimize.Add_Click({
+# --- Close/Done button ---
+$btnDone.Add_Click({ param($s,$e)
+    if ($syncHash.DiscError) {
+        # Worker is waiting for disc swap - signal cancel
+        $syncHash.CancelBurn = $true
+        $syncHash.DiscError = $false
+    }
+    $window.Close()
+})
+
+$btnMinimize.Add_Click({ param($s,$e)
     $window.WindowState = [System.Windows.WindowState]::Minimized
 })
 
-$btnCloseWin.Add_Click({ $window.Close() })
+$btnCloseWin.Add_Click({ param($s,$e)
+    if ($syncHash.DiscError) {
+        $syncHash.CancelBurn = $true
+        $syncHash.DiscError = $false
+    }
+    $window.Close()
+})
 
 $window.Add_MouseLeftButtonDown({ $window.DragMove() })
 
