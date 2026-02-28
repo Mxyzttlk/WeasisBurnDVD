@@ -796,6 +796,19 @@ $completionTimer.Add_Tick({
             $txtLoading.Foreground = (New-Object System.Windows.Media.SolidColorBrush(
                 [System.Windows.Media.ColorConverter]::ConvertFromString("#4CAF50")))
 
+            # Launch tutorial (separate process, non-blocking)
+            $tutorialPath = Join-Path $syncHash.DiscPath "Weasis\tutorial.ps1"
+            if (Test-Path $tutorialPath) {
+                try {
+                    $discArg = $syncHash.DiscPath.TrimEnd('\') + "\."
+                    Start-Process -FilePath "powershell.exe" -ArgumentList @(
+                        "-sta", "-nologo", "-noprofile", "-ExecutionPolicy", "Bypass",
+                        "-File", "`"$tutorialPath`"",
+                        "-DiscPath", "`"$discArg`""
+                    ) -WindowStyle Hidden
+                } catch { }
+            }
+
             $closeTimer = New-Object System.Windows.Threading.DispatcherTimer
             $closeTimer.Interval = [TimeSpan]::FromSeconds(1.5)
             $closeTimer.Add_Tick({

@@ -60,7 +60,9 @@ function Add-DefenderExclusion {
             return
         }
     } catch {
-        # Can't read preferences — try to add anyway
+        # 0x800106ba = Defender service not running / disabled — no exclusion needed
+        Write-Ok "Windows Defender: serviciul nu ruleaza — excludere nu e necesara"
+        return
     }
 
     # 2. Add exclusion — directly if admin, or self-elevate via UAC
@@ -462,7 +464,21 @@ action=Open DICOM Viewer (Weasis)
     Copy-Item -Path (Join-Path $TemplatesDir "splash-loader.ps1") -Destination $ContentDir -Force
     Copy-Item -Path (Join-Path $TemplatesDir "README.html") -Destination $ContentDir -Force
 
-    Write-Ok "autorun.inf (root), start-weasis.bat + splash-loader.ps1 + README.html (Weasis/)"
+    # Tutorial script
+    $tutorialScript = Join-Path $TemplatesDir "tutorial.ps1"
+    if (Test-Path $tutorialScript) {
+        Copy-Item -Path $tutorialScript -Destination $ContentDir -Force
+    }
+
+    # Tutorial images (only numbered PNGs, skip "Copy" duplicates)
+    $tutorialSrc = Join-Path $TemplatesDir "tutorial"
+    if (Test-Path $tutorialSrc) {
+        $tutorialDest = Join-Path $ContentDir "tutorial"
+        New-Item -ItemType Directory -Path $tutorialDest -Force | Out-Null
+        Get-ChildItem "$tutorialSrc\?.png" | Copy-Item -Destination $tutorialDest -Force
+    }
+
+    Write-Ok "autorun.inf (root), start-weasis.bat + splash-loader.ps1 + tutorial.ps1 + README.html (Weasis/)"
 }
 
 function Build-LauncherWrapper {

@@ -496,7 +496,12 @@ $workerScript = {
                 }
             }
         } catch {
-            Log "[!] UAC refuzat — Defender va scana la extragere" 9
+            # 0x800106ba = Defender service not running / disabled — no exclusion needed
+            if ($_.Exception.Message -match '0x800106ba|not running|disabled') {
+                Log "[OK] Defender: serviciul nu ruleaza — excludere nu e necesara" 9
+            } else {
+                Log "[!] UAC refuzat — Defender va scana la extragere" 9
+            }
         }
 
         # ======== STEP 3: EXTRACT ZIP ========
@@ -692,7 +697,16 @@ $workerScript = {
         Copy-Item -Path (Join-Path $templatesDir "splash-loader.ps1") -Destination $contentDir -Force
         $readmeHtml = Join-Path $templatesDir "README.html"
         if (Test-Path $readmeHtml) { Copy-Item -Path $readmeHtml -Destination $contentDir -Force }
-        Log "[OK] autorun.inf + start-weasis.bat + splash-loader.ps1" 53
+        # Tutorial script + images
+        $tutorialScript = Join-Path $templatesDir "tutorial.ps1"
+        if (Test-Path $tutorialScript) { Copy-Item -Path $tutorialScript -Destination $contentDir -Force }
+        $tutorialSrc = Join-Path $templatesDir "tutorial"
+        if (Test-Path $tutorialSrc) {
+            $tutorialDest = Join-Path $contentDir "tutorial"
+            New-Item -ItemType Directory -Path $tutorialDest -Force | Out-Null
+            Get-ChildItem "$tutorialSrc\?.png" | Copy-Item -Destination $tutorialDest -Force
+        }
+        Log "[OK] autorun.inf + start-weasis.bat + splash-loader.ps1 + tutorial.ps1" 53
 
         # ======== STEP 8: LAUNCHER WRAPPER ========
         UpdateStatus ($s.StepLauncher)

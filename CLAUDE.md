@@ -686,7 +686,52 @@ $recorder.EnableMcn()                          # 5. Re-enable MCN for normal dri
 | `$discFormat` | `New-Object IMAPI2.MsftDiscFormat2Data` | Before eject | `catch` block |
 | `$recorder` | `Select-OpticalDrive` | After eject | `catch` block |
 
+### SESSION 2026-02-28 (Tutorial WPF):
+
+#### Tutorial WPF — fereastra cu 7 slide-uri
+Creat `templates/tutorial.ps1` — fereastră WPF standalone cu carousel de imagini.
+
+**Funcționalitate:**
+- 7 slide-uri cu screenshot-uri adnotate (1.png–7.png) care explică funcționalitățile Weasis
+- Apare automat după ce splash-loader.ps1 lansează Weasis cu succes
+- Apare la FIECARE lansare până când utilizatorul apasă "Skip" (Nu mai afișa)
+- Butonul "Skip" creează `%APPDATA%\WeasisBurn\tutorial-skipped.txt` — nu mai apare ulterior
+- Butonul "Închide" / X — doar închide, tutorialul reapare la următoarea lansare
+- Selector limbă [RO] [RU] [EN] în title bar — auto-detectare din sistem + alegere manuală
+- Navigare: butoane Înapoi/Următor + taste săgeți Left/Right + Escape
+- Dark theme #1E1E1E, 920x640px, stil identic cu splash-loader.ps1
+- Imagini cache-uite (BitmapImage.Freeze()) pentru navigare rapidă
+
+**Slide-uri:**
+| # | Conținut |
+|---|---------|
+| 1 | ① Așteptați terminarea încărcării; ② Buton oprire loading |
+| 2 | ① Panoul cu serii (dublu-clic); ② Seria activă — cerc verde |
+| 3 | ① Zona de scrolling — click stâng + sus/jos |
+| 4 | ① Butonul MPR — reconstrucție proiecții |
+| 5 | Așteptați reconstrucția, barele de progres, navigarea devine fluidă |
+| 6 | ① MIP; ② Alegerea ferestrelor; ③ Dispunere vizualizare |
+| 7 | ① Instrumente de măsurare |
+
+**Fișiere modificate:**
+- `templates/tutorial.ps1` — NOU (~380 linii, WPF tutorial window)
+- `templates/splash-loader.ps1` — lansare tutorial.ps1 după success (Start-Process)
+- `scripts/burn.ps1` — Copy-TemplatesToStaging: copiază tutorial.ps1 + tutorial/*.png
+- `scripts/burn-gui.ps1` — aceleași adăugări
+
+**Structura pe disc:**
+```
+Weasis/
+├── tutorial.ps1
+├── tutorial/
+│   ├── 1.png ... 7.png
+└── ...
+```
+
+**Encoding**: tutorial.ps1 salvat cu UTF-8 BOM (fix-encoding.ps1) — necesar pentru Cyrillic (RU)
+
 ### NEXT STEPS:
+- ~~**Tutorial WPF**: în lucru~~ DONE
 - Add "Open Source Attribution" section to `templates/README.html`
 - ~~Create .gitignore (tools/, downloads/ excluded)~~ DONE
 - Test on another computer (clean environment, no .weasis cache)
@@ -704,6 +749,173 @@ $recorder.EnableMcn()                          # 5. Re-enable MCN for normal dri
 - Result: setup.ps1 may try to install WebView2 Runtime even when it's already functional via Edge
 - Impact: low -- the bootstrapper installer is harmless if runtime already exists (installs standalone copy)
 - Future fix: also check if `msedgewebview2.exe` exists in Edge or WebView2 paths before attempting install
+
+## Future: Pipeline paralel (descărcare + ardere simultană)
+
+### Concept
+În timp ce un disc se arde (~5 min), utilizatorul descarcă următoarea investigație din PACS.
+Câștig: elimină timpul de descărcare (~30-120 sec) pentru fiecare disc după primul.
+
+### Faze de implementare
+
+**Faza 1 — Burn în background + descărcare simultană (mare impact, simplu)**
+- Burn-ul rulează în background thread (nu blochează WebView2)
+- Utilizatorul navighează PACS + descarcă în timp ce arde
+- Status bar: "Ardere: Pacient X — 45%" + "Descărcat: Pacient Y.zip"
+- Când burn-ul termină → notificare + auto-preia următorul ZIP din `downloads/`
+
+**Faza 2 — Coadă vizuală de ardere**
+- Lista ZIP-uri descărcate cu status: descărcat / în ardere / ars / eroare
+- Auto-detect disc gol → pornește automat următorul burn
+- Retry pe eroare
+- Asociere ZIP → pacient (PatientName din DICOM header)
+
+**Faza 3 — Extinderi**
+- Dual writer support (2 unități optice, ardere paralelă)
+- Print label pe disc (LightScribe/discuri cu print)
+
+### Impedimente tehnice
+- **Staging unic**: acum e fix `%TEMP%\WeasisBurn` — trebuie `WeasisBurn-<timestamp>` per burn
+- **Discul fizic**: un writer = un disc la un moment dat, swap manual 5-15 sec (neautomatizabil)
+- **Sesiunea PACS**: se blochează după inactivitate — auto-unlock există dar sesiunea poate expira complet
+- **Erori în pipeline**: disc defect (retry?), ZIP corupt (skip?), writer blocat (toate așteaptă)
+- **Identificare ZIP→Pacient**: GUI trebuie să afișeze coadă cu nume + studiu, permită reordonare
+
+## Future: Aplicație C# .NET 8 (înlocuiește PowerShell)
+
+### Decizie
+Întreaga aplicație (PACS Burner + DICOM Receive + Burn) va fi rescrisă în **C# .NET 8**.
+PowerShell-ul actual rămâne funcțional, C# va fi dezvoltat în paralel.
+
+### De ce C#:
+- **IMAPI2 COM** — interop nativ, fără wrappere
+- **fo-dicom** — librărie completă: C-STORE SCP, parsare DICOM, DICOMDIR generation (înlocuiește dcmtk)
+- **WPF + WebView2** — GUI nativ, fără problemele PowerShell (BOM, $args, closure scoping)
+- **Single exe** — `dotnet publish --self-contained -p:PublishSingleFile=true` (~30-50 MB, zero dependențe)
+- **Portare ușoară** — codul PowerShell e deja ~80% C# ca logică
+- **.NET 8 LTS** — performanță excelentă, AOT compilation disponibil
+
+### Componente principale:
+1. **PACS Web module** — WebView2 browser (port din pacs-burner.ps1)
+2. **DICOM Receive module** — fo-dicom C-STORE SCP (înlocuiește storescp.exe)
+3. **Burn module** — IMAPI2 COM (port din burn.ps1/burn-gui.ps1)
+4. **Queue module** — coadă vizuală de studii (din ambele surse)
+5. **Disc templates** — start-weasis.bat, splash-loader.ps1, autorun.inf (rămân ca fișiere copiate pe disc)
+
+### NuGet packages necesare:
+- `fo-dicom` — DICOM network + parsing + DICOMDIR
+- `Microsoft.Web.WebView2` — browser embedded
+- `System.Drawing.Common` — icon extraction (dacă e nevoie)
+
+## Future: DICOM Receive (workflow Siemens/eFilm)
+
+### Concept
+Recrearea workflow-ului de la stațiile Siemens: investigațiile se trimit automat prin rețea DICOM
+direct la PC-ul de burn, fără descărcare manuală din PACS web. Cel mai rapid flux — studiul se
+transmite în timp ce pacientul e încă pe masă.
+
+### Workflow original (eFilm):
+1. Stația Siemens (CT/MR) → **DICOM C-STORE** → PC cu eFilm (Win 7)
+2. eFilm primea studiile prin rețea → folder local
+3. Operatorul ardea pe disc
+
+### Workflow nou (PACS Burner):
+Două moduri de operare în aceeași aplicație:
+
+| Mod | Sursă | Flux |
+|-----|-------|------|
+| **PACS Web** (actual) | Descărcare ZIP din browser | WebView2 → download → burn |
+| **DICOM Receive** (nou) | Stația trimite direct prin rețea | C-STORE SCP → folder → burn |
+
+### Implementare tehnică
+
+**C-STORE SCP** — server DICOM care primește studii:
+- Tool: `storescp.exe` din **dcmtk** (deja în proiect, `tools/dcmtk/`)
+- Comandă: `storescp.exe 4006 --output-directory "incoming" --sort-on-study-uid "study"`
+- Ascultă pe port configurat (ex: 4006), salvează DICOM în subfoldere per studiu
+
+**Configurare pe stația Siemens** (face inginerul/administratorul):
+
+| Câmp | Valoare |
+|------|---------|
+| AE Title | `WEASIS_BURN` (configurabil) |
+| IP | adresa PC-ului receptor |
+| Port | `4006` (configurabil) |
+
+### Integrare în PACS Burner app
+- Tab/mod nou "DICOM Receive" în app
+- `storescp.exe` lansat ca proces background din app
+- Folder `incoming/` monitorizat pentru studii noi
+- Studiile completate apar în coada de burn
+- Settings: AE Title, Port, folder incoming — configurabile din UI
+
+### Problema cheie: detectarea completării studiului
+`storescp` primește fișiere individual, nu există semnal "studiu complet". Opțiuni:
+1. **Timeout** — nu mai primești fișiere de 10-15 sec → studiu considerat complet
+2. **DICOM header** — verificare `NumberOfFrames` / `ImagesInAcquisition`
+3. **Manual** — operatorul apasă "Burn" când știe că s-a terminat
+
+### DICOMDIR
+Fișierele primite via C-STORE sunt DICOM valide. DICOMDIR generat cu `dcmmkdir` —
+funcționează bine aici pentru că noi controlăm structura folderului.
+
+### Cerințe suplimentare
+- **Firewall**: portul ales trebuie deschis pe PC-ul receptor
+- **Rețea**: PC-ul trebuie să fie în aceeași rețea/VLAN cu stațiile DICOM
+- **C-ECHO**: storescp suportă și C-ECHO (ping DICOM) — util pentru verificare conectivitate
+
+### Informații stații Siemens (recon 2026-02-28)
+- **Software**: syngoMMWP VE52A, OS: Windows XP/Server 2003 (Version 5.2.3790)
+- **User OS**: meduser
+- **Rețea**: 192.168.22.0/24 (aceeași cu PACS-ul), gateway gol (rețea locală directă)
+- **Stație #1 IP**: 192.168.22.51 (celelalte 3 — de aflat)
+- **4 stații total** — fiecare trebuie configurată identic (add destination)
+- **DICOM General**: Study Transfer [SCP + SCU] (poate trimite și primi), Print [SCU]
+- **DICOM Network Nodes**: pagina unde se adaugă destinații (Select Host, Host Name, TCP/IP, LAN/RAS, buton Test)
+- **AutoTransfers**: dezactivat momentan (trebuie activat + adăugat destinația)
+- **Offline Devices**: gol (fără service key)
+- **Routing**: Configure Gateway + Control Rip Listener (nu DICOM routing)
+- **Service key**: necesar pentru modificări — contactat inginer Siemens
+- **AE Title-uri + IP-uri** — configurabile din app Settings, nu hardcodate
+- **AE Title stații**: de aflat (din consola operatorului sau de la admin PACS)
+
+### eFilm 3.1.0 — configurație recuperată (recon 2026-02-28)
+- **Versiune**: eFilm 3.1.0 (din efTitle.txt)
+- **AE Title eFilm**: probabil **`eFilmKKD`** (din DICOMdb.mdb: "Merge eFilmKKD", referință "nKKD"; KKD = abrevierea instituției)
+- **Port eFilm**: necunoscut (valorile stocate binar în MDB, nu extrase ca text)
+- **Build**: 07.53
+- **DICOM folder**: studiile stocate per Study Instance UID (prefix `1.3.12.2.1107.5.1.4` = Siemens)
+- **DICOMdb.mdb** (Access): tabelele Server + DolphinServer conțin configurația DICOM
+  - Schema Server: Server ID, AE Title, Hostname, Port, Description, Type, Format, Priority, etc.
+  - Schema DolphinServer: Server ID, AE Title, Hostname, Port, Description, Type, DeviceID, Default, Source
+  - Valorile efective binar-encoded, nu extrase — necesită Access sau OleDb pentru citire
+- **SOP Classes suportate** (din pdu.txt):
+  - Storage: CT, CR, MR, US, NM, MG, PET, RT, DX, XA, RF, SC (practic totul)
+  - Query/Retrieve: PatientRoot, StudyRoot
+- **Transfer Syntaxes** (din pdu.txt + SyntaxLists.ini):
+  - LittleEndianImplicit, LittleEndianExplicit, BigEndianExplicit
+  - JPEG Lossless, JPEG Baseline, JPEG 2000
+  - RLE Lossless
+  - Organizate per tip: Mono/RGB/YBR, Full/Lossy/Lossless
+- **Window/Level Presets**: BrainCT, BoneCT, ChestCT, LungCT, Head & NeckCT, Abdomen/PelvisCT, Ultrasound (3 variante)
+- **eFilm.exe.config**: doar .NET 2.0 runtime, nimic DICOM
+- **Componente eFilm**: efServer.exe (DICOM SCP), efQueue.exe (coadă), StarBurn.dll (burn CD/DVD)
+- **Concluzie**: fo-dicom în C# suportă toate aceste SOP classes și transfer syntaxes nativ — compatibilitate 100%
+
+### TODO — de aflat pentru DICOM Receive
+
+**Critic (fără asta nu merge):**
+1. ❌ **AE Title-urile celor 4 stații Siemens** — din consola operatorului sau de la admin PACS
+2. ❌ **IP-urile celorlalte 3 stații** — `ipconfig` pe fiecare (știm #1: 192.168.22.51)
+3. ❌ **IP static pe PC-ul de burn** — trebuie adresă fixă în 192.168.22.x (dacă DHCP → rezervare la admin)
+4. ❌ **Contact inginer Siemens** (service key) — adaugă destinația pe 4 stații + activează AutoTransfers
+
+**Util dar nu urgent:**
+5. ❌ **AE Title eFilm confirmat** — probabil `eFilmKKD`, de verificat din eFilm Settings sau DICOMdb.mdb cu Access
+6. ❌ **Portul eFilm** — ne arată ce port era deja deschis în firewall
+7. ❌ **Firewall pe PC-ul de burn** — portul ales (ex: 4006) trebuie deschis
+
+**Ordinea implementării**: afli datele → eu scriu app-ul C# → inginerul configurează stațiile → testare
 
 ## Hardware
 - Work: internal DVD writer
