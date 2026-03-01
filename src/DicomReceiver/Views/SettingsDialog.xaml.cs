@@ -19,7 +19,9 @@ public partial class SettingsDialog : Window
             IncomingFolder = settings.IncomingFolder,
             StudyTimeoutSeconds = settings.StudyTimeoutSeconds,
             BurnSpeed = settings.BurnSpeed,
-            Language = settings.Language
+            Language = settings.Language,
+            AutoDeleteAfterBurn = settings.AutoDeleteAfterBurn,
+            MaxStudiesKeep = settings.MaxStudiesKeep
         };
 
         // Populate fields
@@ -51,6 +53,11 @@ public partial class SettingsDialog : Window
         }
         if (CmbLanguage.SelectedItem == null)
             CmbLanguage.SelectedIndex = 0; // auto
+
+        // Auto-delete + Max studies (mutually exclusive)
+        ChkAutoDelete.IsChecked = Settings.AutoDeleteAfterBurn;
+        TxtMaxStudies.Text = Settings.MaxStudiesKeep.ToString();
+        UpdateMaxStudiesEnabled();
     }
 
     private void BrowseFolder_Click(object sender, RoutedEventArgs e)
@@ -98,8 +105,42 @@ public partial class SettingsDialog : Window
         if (CmbLanguage.SelectedItem is ComboBoxItem langItem)
             Settings.Language = langItem.Tag.ToString()!;
 
+        Settings.AutoDeleteAfterBurn = ChkAutoDelete.IsChecked == true;
+
+        // MaxStudiesKeep only relevant when AutoDelete is OFF
+        if (!Settings.AutoDeleteAfterBurn)
+        {
+            if (!int.TryParse(TxtMaxStudies.Text, out var maxStudies) || maxStudies < 0)
+            {
+                MessageBox.Show("Max studies must be 0 or greater (0 = unlimited)", "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            Settings.MaxStudiesKeep = maxStudies;
+        }
+        else
+        {
+            Settings.MaxStudiesKeep = 0; // Reset — not used when AutoDelete is ON
+        }
+
         DialogResult = true;
         Close();
+    }
+
+    private void ChkAutoDelete_Changed(object sender, RoutedEventArgs e)
+    {
+        UpdateMaxStudiesEnabled();
+    }
+
+    /// <summary>
+    /// AutoDelete ON → MaxStudies disabled (irrelevant — studies deleted immediately after burn).
+    /// AutoDelete OFF → MaxStudies enabled (controls when old studies get purged).
+    /// </summary>
+    private void UpdateMaxStudiesEnabled()
+    {
+        var enabled = ChkAutoDelete.IsChecked != true;
+        TxtMaxStudies.IsEnabled = enabled;
+        LblMaxStudies.Opacity = enabled ? 1.0 : 0.4;
+        LblMaxStudiesHint.Opacity = enabled ? 1.0 : 0.4;
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)

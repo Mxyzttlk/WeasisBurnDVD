@@ -18,6 +18,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     private readonly BurnService _burnService = new();
     private readonly SettingsService _settingsService = new();
     private readonly Dispatcher _dispatcher;
+    private readonly DispatcherTimer _uiTimer;
 
     private AppSettings _settings;
 
@@ -69,28 +70,30 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         ClearLogCommand = new RelayCommand(() => LogEntries.Clear());
 
         // Wire up events
+        // BeginInvoke (async) — does NOT block the fo-dicom network thread
+        // Invoke (sync) would block DICOM reception waiting for UI, causing lag during bulk transfer
         _scpService.FileReceived += (s, e) =>
         {
-            _monitorService.OnFileReceived(e);
+            _dispatcher.BeginInvoke(() =>
+            {
+                _monitorService.OnFileReceived(e);
+
+                // Ensure study is in the collection
+                var study = _monitorService.Studies
+                    .FirstOrDefault(st => st.StudyInstanceUid == e.StudyInstanceUid);
+                if (study != null && !Studies.Contains(study))
+                    Studies.Insert(0, study);
+            });
         };
 
         _scpService.LogMessage += (s, msg) =>
         {
-            _dispatcher.Invoke(() => AddLog(msg));
-        };
-
-        _monitorService.StudyUpdated += (s, e) =>
-        {
-            _dispatcher.Invoke(() =>
-            {
-                if (!Studies.Contains(e.Study))
-                    Studies.Insert(0, e.Study);
-            });
+            _dispatcher.BeginInvoke(() => AddLog(msg));
         };
 
         _monitorService.StudyCompleted += (s, e) =>
         {
-            _dispatcher.Invoke(() =>
+            _dispatcher.BeginInvoke(() =>
             {
                 AddLog($"Study complete: {e.Study.PatientName} — {e.Study.ImageCount} images, {e.Study.TotalSizeFormatted}");
             });
@@ -98,8 +101,23 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         _burnService.LogMessage += (s, msg) =>
         {
-            _dispatcher.Invoke(() => AddLog(msg));
+            _dispatcher.BeginInvoke(() => AddLog(msg));
         };
+
+        // UI timer — runs on UI thread every 1 second
+        // Handles BOTH elapsed time display AND study completion detection
+        // (no separate System.Threading.Timer needed — eliminates cross-thread race conditions)
+        _uiTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _uiTimer.Tick += (s, e) =>
+        {
+            _monitorService.CheckAndCompleteStudies();
+            _monitorService.UpdateElapsedTimes();
+            AutoPurgeOldStudies();
+        };
+        _uiTimer.Start();
 
         // Auto-start SCP
         StartScp();
@@ -160,6 +178,14 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         if (study.Status != StudyStatus.Complete) return;
 
         await _burnService.BurnStudyAsync(study, _settings);
+
+        // Auto-delete from queue after successful burn
+        if (_settings.AutoDeleteAfterBurn && study.Status == StudyStatus.Done)
+        {
+            Studies.Remove(study);
+            _monitorService.RemoveStudy(study.StudyInstanceUid);
+            AddLog($"Auto-deleted: {study.PatientName}");
+        }
     }
 
     private void DeleteStudy(object? param)
@@ -217,6 +243,44 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         AddLog("All studies deleted");
     }
 
+    /// <summary>
+    /// Auto-purge ONE oldest Done/Error study per tick when count exceeds MaxStudiesKeep.
+    /// Runs every 1 second from DispatcherTimer — lightweight: exits immediately if disabled or under limit.
+    /// Only removes finished studies (Done/Error), never active ones (Receiving/Complete/Burning).
+    /// MAX 1 purge per tick — prevents UI freeze from multiple Directory.Delete calls.
+    /// At 1 purge/sec, 10 excess studies clear in 10 seconds — perfectly adequate.
+    /// </summary>
+    private void AutoPurgeOldStudies()
+    {
+        // AutoDelete ON → studies removed immediately after burn, purge not needed
+        if (_settings.AutoDeleteAfterBurn) return;
+        if (_settings.MaxStudiesKeep <= 0) return;
+        if (Studies.Count <= _settings.MaxStudiesKeep) return;
+
+        // Find ONE oldest removable study (Done/Error) — no ToList(), stops at first match
+        ReceivedStudy? oldest = null;
+        foreach (var s in Studies)
+        {
+            if (s.Status != StudyStatus.Done && s.Status != StudyStatus.Error) continue;
+            if (oldest == null || s.LastFileReceivedTime < oldest.LastFileReceivedTime)
+                oldest = s;
+        }
+
+        if (oldest == null) return; // All studies are active — can't purge
+
+        // Delete files from disk (may already be deleted by BurnService for Done studies)
+        try
+        {
+            if (Directory.Exists(oldest.StoragePath))
+                Directory.Delete(oldest.StoragePath, true);
+        }
+        catch { }
+
+        Studies.Remove(oldest);
+        _monitorService.RemoveStudy(oldest.StudyInstanceUid);
+        AddLog($"Auto-purged: {oldest.PatientName}");
+    }
+
     private void AddLog(string message)
     {
         var entry = $"[{DateTime.Now:HH:mm:ss}] {message}";
@@ -229,7 +293,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
     public void Shutdown()
     {
+        _uiTimer.Stop();
         StopScp();
+        _scpService.Dispose();
         _monitorService.Dispose();
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using DicomReceiver.Models;
 
@@ -20,11 +21,43 @@ public class BurnService
             throw new InvalidOperationException("Study is not complete");
 
         study.Status = StudyStatus.Burning;
-        study.StatusText = "Preparing...";
+        study.StatusText = "Validating...";
 
         try
         {
-            // Find project root (burn.ps1 location)
+            // ============================================================
+            // CRITICAL: Validate DICOM files exist on disk BEFORE burning
+            // Prevents the eFilm bug where burn ran with empty/missing data
+            // ============================================================
+            if (!Directory.Exists(study.StoragePath))
+            {
+                throw new DirectoryNotFoundException(
+                    $"Study folder not found: {study.StoragePath}");
+            }
+
+            var dirInfo = new DirectoryInfo(study.StoragePath);
+            var dcmFiles = dirInfo.EnumerateFiles("*.dcm", SearchOption.AllDirectories).ToList();
+
+            if (dcmFiles.Count == 0)
+            {
+                throw new FileNotFoundException(
+                    $"No DICOM files found in {study.StoragePath}");
+            }
+
+            var totalSize = dcmFiles.Sum(f => f.Length);
+            LogMessage?.Invoke(this,
+                $"Validated: {dcmFiles.Count} DICOM files, {totalSize / (1024.0 * 1024.0):F1} MB");
+
+            // Sanity check: warn if file count doesn't match expected
+            if (dcmFiles.Count != study.ImageCount)
+            {
+                LogMessage?.Invoke(this,
+                    $"WARNING: Expected {study.ImageCount} images but found {dcmFiles.Count} on disk");
+            }
+
+            // ============================================================
+            // Find burn script
+            // ============================================================
             var projectRoot = FindProjectRoot();
             if (projectRoot == null)
                 throw new FileNotFoundException("Cannot find project root (scripts/burn.ps1)");
@@ -36,7 +69,9 @@ public class BurnService
             if (!File.Exists(burnScript))
                 throw new FileNotFoundException("Burn script not found");
 
-            // Create a temporary ZIP from the study's DICOM folder
+            // ============================================================
+            // Create ZIP from DICOM folder
+            // ============================================================
             var tempZip = Path.Combine(Path.GetTempPath(), $"dicom-burn-{study.StudyInstanceUid[..8]}.zip");
 
             study.StatusText = "Creating ZIP...";
@@ -45,10 +80,21 @@ public class BurnService
             if (File.Exists(tempZip)) File.Delete(tempZip);
             await Task.Run(() => System.IO.Compression.ZipFile.CreateFromDirectory(study.StoragePath, tempZip));
 
-            study.StatusText = "Burning...";
-            LogMessage?.Invoke(this, $"Launching burn: {burnScript}");
+            // Verify ZIP was actually created and is not empty
+            var zipInfo = new FileInfo(tempZip);
+            if (!zipInfo.Exists || zipInfo.Length == 0)
+            {
+                throw new IOException("ZIP creation failed — file is empty or missing");
+            }
 
-            // Launch burn-gui.ps1 with the ZIP
+            LogMessage?.Invoke(this, $"ZIP created: {FormatSize(zipInfo.Length)}");
+
+            // ============================================================
+            // Launch burn script
+            // ============================================================
+            study.StatusText = "Burning...";
+            LogMessage?.Invoke(this, $"Launching burn: {Path.GetFileName(burnScript)}");
+
             var psi = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
@@ -57,7 +103,7 @@ public class BurnService
                 CreateNoWindow = true
             };
 
-            var process = Process.Start(psi);
+            using var process = Process.Start(psi);
             if (process != null)
             {
                 await process.WaitForExitAsync();
@@ -66,7 +112,7 @@ public class BurnService
                 {
                     study.Status = StudyStatus.Done;
                     study.StatusText = "Burned";
-                    LogMessage?.Invoke(this, "Burn completed successfully");
+                    LogMessage?.Invoke(this, $"Burn completed: {study.PatientName}");
                 }
                 else
                 {
@@ -75,9 +121,32 @@ public class BurnService
                     LogMessage?.Invoke(this, $"Burn failed with exit code {process.ExitCode}");
                 }
             }
+            else
+            {
+                throw new InvalidOperationException("Failed to start burn process");
+            }
 
             // Cleanup temp ZIP
             try { if (File.Exists(tempZip)) File.Delete(tempZip); } catch { }
+
+            // Cleanup incoming DICOM files after successful burn — prevents disk filling up
+            // 100 patients × 80 MB = 8 GB accumulated without cleanup
+            if (study.Status == StudyStatus.Done)
+            {
+                try
+                {
+                    if (Directory.Exists(study.StoragePath))
+                    {
+                        Directory.Delete(study.StoragePath, true);
+                        LogMessage?.Invoke(this, $"Cleaned up: {study.StoragePath}");
+                    }
+                }
+                catch (Exception cleanupEx)
+                {
+                    LogMessage?.Invoke(this, $"Cleanup warning: {cleanupEx.Message}");
+                    // Non-fatal — burn succeeded, files can be cleaned manually
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -85,6 +154,14 @@ public class BurnService
             study.StatusText = $"Error: {ex.Message}";
             LogMessage?.Invoke(this, $"Burn error: {ex.Message}");
         }
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024.0):F1} MB";
+        return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
     }
 
     private static string? FindProjectRoot()

@@ -36,6 +36,7 @@ public partial class ReceivedStudy : ObservableObject
     private int _imageCount;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(TotalSizeFormatted))]
     private long _totalSizeBytes;
 
     [ObservableProperty]

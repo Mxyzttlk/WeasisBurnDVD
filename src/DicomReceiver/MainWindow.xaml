@@ -35,10 +35,14 @@
 
                     <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" Margin="10,2" />
 
-                    <Button Content="&#x2699;"
-                            Command="{Binding OpenSettingsCommand}"
+                    <Button Command="{Binding OpenSettingsCommand}"
                             Style="{StaticResource DarkButton}"
-                            FontSize="18" Width="40" ToolTip="Settings" />
+                            FontSize="13" Padding="8,4" ToolTip="Settings">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="14" VerticalAlignment="Center" Margin="0,0,5,0" />
+                            <TextBlock Text="Settings" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
 
                 <!-- Right: Delete all -->
@@ -146,7 +150,7 @@
                 <DataGridTextColumn Header="Series" Binding="{Binding SeriesCount}" Width="60" />
                 <DataGridTextColumn Header="Images" Binding="{Binding ImageCount}" Width="70" />
                 <DataGridTextColumn Header="Size" Binding="{Binding TotalSizeFormatted}" Width="90" />
-                <DataGridTextColumn Header="Status" Binding="{Binding StatusText}" Width="140" />
+                <DataGridTextColumn Header="Status" Binding="{Binding StatusText}" Width="200" />
 
                 <!-- Action buttons -->
                 <DataGridTemplateColumn Header="" Width="150">

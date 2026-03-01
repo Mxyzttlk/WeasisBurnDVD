@@ -19,7 +19,7 @@ public class FileReceivedEventArgs : EventArgs
     public required long FileSize { get; init; }
 }
 
-public class DicomScpService
+public class DicomScpService : IDisposable
 {
     private IDicomServer? _server;
     private string _incomingFolder = "";
@@ -55,12 +55,21 @@ public class DicomScpService
         _server.Dispose();
         _server = null;
 
+        // Clear static references to prevent memory leaks
+        CStoreScp.OnFileReceived = null;
+        CStoreScp.OnLog = null;
+
         LogMessage?.Invoke(this, "SCP stopped");
     }
 
     private void OnFileReceived(FileReceivedEventArgs args)
     {
         FileReceived?.Invoke(this, args);
+    }
+
+    public void Dispose()
+    {
+        Stop();
     }
 }
 
@@ -89,8 +98,8 @@ public class CStoreScp : DicomService, IDicomServiceProvider, IDicomCStoreProvid
                 DicomTransferSyntax.ExplicitVRLittleEndian,
                 DicomTransferSyntax.ImplicitVRLittleEndian,
                 DicomTransferSyntax.ExplicitVRBigEndian,
-                DicomTransferSyntax.JPEGLossless,
-                DicomTransferSyntax.JPEGBaseline8Bit,
+                DicomTransferSyntax.JPEGProcess14SV1,
+                DicomTransferSyntax.JPEGProcess1,
                 DicomTransferSyntax.JPEG2000Lossless,
                 DicomTransferSyntax.JPEG2000Lossy,
                 DicomTransferSyntax.RLELossless

@@ -51,6 +51,9 @@ public static class LocalizationHelper
             ["RestartRequired"] = "Reporniti SCP-ul pentru a aplica modificarile",
             ["Log"] = "Jurnal",
             ["ClearLog"] = "Curata jurnal",
+            ["AutoDeleteAfterBurn"] = "Sterge automat dupa ardere",
+            ["MaxStudiesKeep"] = "Max investigatii pastrate",
+            ["MaxStudiesHint"] = "(0 = nelimitat)",
         },
         ["ru"] = new()
         {
@@ -94,6 +97,9 @@ public static class LocalizationHelper
             ["RestartRequired"] = "\u041f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u0435 SCP \u0434\u043b\u044f \u043f\u0440\u0438\u043c\u0435\u043d\u0435\u043d\u0438\u044f \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439",
             ["Log"] = "\u0416\u0443\u0440\u043d\u0430\u043b",
             ["ClearLog"] = "\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0436\u0443\u0440\u043d\u0430\u043b",
+            ["AutoDeleteAfterBurn"] = "\u0410\u0432\u0442\u043e\u0443\u0434\u0430\u043b\u0435\u043d\u0438\u0435 \u043f\u043e\u0441\u043b\u0435 \u0437\u0430\u043f\u0438\u0441\u0438",
+            ["MaxStudiesKeep"] = "\u041c\u0430\u043a\u0441 \u0438\u0441\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u043d\u0438\u0439",
+            ["MaxStudiesHint"] = "(0 = \u0431\u0435\u0437 \u043e\u0433\u0440\u0430\u043d\u0438\u0447\u0435\u043d\u0438\u0439)",
         },
         ["en"] = new()
         {
@@ -137,6 +143,9 @@ public static class LocalizationHelper
             ["RestartRequired"] = "Restart SCP to apply changes",
             ["Log"] = "Log",
             ["ClearLog"] = "Clear log",
+            ["AutoDeleteAfterBurn"] = "Auto-delete after burn",
+            ["MaxStudiesKeep"] = "Max studies kept",
+            ["MaxStudiesHint"] = "(0 = unlimited)",
         }
     };
 
