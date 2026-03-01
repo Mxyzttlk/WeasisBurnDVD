@@ -5,7 +5,8 @@
 # ============================================================================
 
 param(
-    [Parameter(Mandatory=$true)][string]$ZipPath,
+    [string]$ZipPath = "",
+    [string]$DicomFolder = "",
     [string]$DriveID = "",
     [int]$BurnSpeed = 4,
     [switch]$AutoConfirm,
@@ -344,6 +345,7 @@ $syncHash = [hashtable]::Synchronized(@{
     Failed      = $false
     Strings     = $strings
     ZipPath     = $ZipPath
+    DicomFolder = $DicomFolder
     DriveID     = $DriveID
     BurnSpeed   = $BurnSpeed
     SimulateOnly = [bool]$SimulateOnly
@@ -362,6 +364,7 @@ $workerScript = {
 
     $s = $sync.Strings
     $zipPath = $sync.ZipPath
+    $dicomFolder = $sync.DicomFolder
     $driveID = $sync.DriveID
     $burnSpeed = $sync.BurnSpeed
     $simulate = $sync.SimulateOnly
@@ -480,7 +483,7 @@ $workerScript = {
         # ======== STEP 1: VERIFY WEASIS ========
         UpdateStatus ($s.StepVerify)
         Log ">>> $($s.StepVerify)" 2
-        if (-not (Test-Path $zipPath)) { throw $s.NoZip }
+        if ($zipPath -and -not (Test-Path $zipPath)) { throw $s.NoZip }
         $launcherJar = Join-Path $weasisDir "weasis-launcher.jar"
         if (-not (Test-Path $launcherJar)) { throw $s.NoWeasis }
         $hasX86 = Test-Path (Join-Path $weasisDir "jre\windows\bin\java.exe")
@@ -533,19 +536,34 @@ $workerScript = {
             }
         }
 
-        # ======== STEP 3: EXTRACT ZIP ========
-        UpdateStatus ($s.StepExtract)
-        Log ">>> $($s.StepExtract) $(Split-Path -Leaf $zipPath)" 10
-        $extractDir = Join-Path $tempRoot "extracted"
-        if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
-        # .NET ZipFile is 2-3x faster than PowerShell's Expand-Archive
-        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
-        try {
-            [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractDir)
-        } catch {
-            Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+        # ======== STEP 3: EXTRACT ZIP or USE DICOM FOLDER ========
+        # Validate input: one of ZipPath or DicomFolder must be provided
+        if (-not $zipPath -and -not $dicomFolder) {
+            throw "Specificati -ZipPath sau -DicomFolder"
         }
-        Log "[OK] ZIP -> $extractDir" 18
+
+        if ($dicomFolder) {
+            # DicomFolder mode: folder already prepared (from DicomReceiver C# app)
+            if (-not (Test-Path $dicomFolder)) {
+                throw "Folderul DICOM nu exista: $dicomFolder"
+            }
+            $extractDir = $dicomFolder
+            Log "[OK] Folder DICOM primit: $dicomFolder" 18
+        } else {
+            # ZIP mode: extract as before (PACS workflow)
+            UpdateStatus ($s.StepExtract)
+            Log ">>> $($s.StepExtract) $(Split-Path -Leaf $zipPath)" 10
+            $extractDir = Join-Path $tempRoot "extracted"
+            if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
+            # .NET ZipFile is 2-3x faster than PowerShell's Expand-Archive
+            Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+            try {
+                [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractDir)
+            } catch {
+                Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+            }
+            Log "[OK] ZIP -> $extractDir" 18
+        }
 
         # ======== STEP 4: COPY DICOM FILES ========
         UpdateStatus ($s.StepDicom)
@@ -1071,8 +1089,8 @@ $workerScript = {
             }
         }
 
-        # Delete source ZIP on successful burn
-        if ($sync.BurnSuccess -and (Test-Path $zipPath)) {
+        # Delete source ZIP on successful burn (only in ZIP mode)
+        if ($sync.BurnSuccess -and $zipPath -and (Test-Path $zipPath)) {
             try {
                 Remove-Item -Force $zipPath
                 Log "[OK] $($s.DeleteZip): $(Split-Path -Leaf $zipPath)" 99
