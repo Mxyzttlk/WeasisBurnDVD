@@ -6,3 +6,8 @@ downloads/
 
 # User settings with encrypted passwords (DPAPI - user-specific)
 app/settings.json
+
+# DICOM Receiver runtime data
+src/DicomReceiver/incoming/
+src/DicomReceiver/bin/
+src/DicomReceiver/obj/

@@ -78,7 +78,8 @@
       "Bash(grep -rn \"Fisierul\\\\|EROARE\\\\|Extrag\\\\|Curatare\\\\|extras\\\\|temporare\\\\|gasit\\\\|creat\" \"E:/Weasis Burn\"/burn.bat \"E:/Weasis Burn\"/scripts/*.ps1 \"E:/Weasis Burn\"/scripts/*.bat)",
       "Bash(grep -n \"^[[:space:]]*#.*\\\\\\(Fisierul\\\\|Extrag\\\\|Curatare\\\\|extras\\\\|temporare\\\\|gasit\\\\|creat\\\\|Eroare\\\\|conectata\\\\|Discul\\\\|gol\\\\|Niciun\\\\|instalat\\\\|Fara drepturi\\\\|Introduceti\\\\|parola\\\\|Capacitate\\\\|Verificare\\\\|Pregatire\\\\|Ardere\\\\|Curatenie\\\\|Succes\\\\|Scriere\\\\\\)\" \"E:/Weasis Burn\"/scripts/*.ps1 \"E:/Weasis Burn\"/templates/*.ps1 \"E:/Weasis Burn\"/app/*.ps1)",
       "Bash(grep -n \"EROARE\\\\|Succes\\\\|Ardere\\\\|Pregatire\\\\|Extrag\\\\|Curatare\\\\|gasit\\\\|conectat\\\\|Unitate\\\\|Capacitate\\\\|Disc\\\\|Simulare\\\\|Finalizat\\\\|Fisierul\\\\|parola\" \"E:/Weasis Burn\"/templates/launcher.cs \"E:/Weasis Burn\"/app/*.vbs \"E:/Weasis Burn\"/setup.bat)",
-      "Bash(grep -n \"^[[:space:]]*REM.*\\\\\\(Fisierul\\\\|Extrag\\\\|extras\\\\|Curatare\\\\|gasit\\\\|creat\\\\|Eroare\\\\|conectata\\\\|Discul\\\\|gol\\\\|Niciun\\\\|instalat\\\\|Fara drepturi\\\\|Introduceti\\\\|parola\\\\\\)\" \"E:/Weasis Burn\"/scripts/*.ps1 \"E:/Weasis Burn\"/scripts/*.bat \"E:/Weasis Burn\"/templates/*.bat)"
+      "Bash(grep -n \"^[[:space:]]*REM.*\\\\\\(Fisierul\\\\|Extrag\\\\|extras\\\\|Curatare\\\\|gasit\\\\|creat\\\\|Eroare\\\\|conectata\\\\|Discul\\\\|gol\\\\|Niciun\\\\|instalat\\\\|Fara drepturi\\\\|Introduceti\\\\|parola\\\\\\)\" \"E:/Weasis Burn\"/scripts/*.ps1 \"E:/Weasis Burn\"/scripts/*.bat \"E:/Weasis Burn\"/templates/*.bat)",
+      "Bash(git checkout -b test)"
     ]
   }
 }
