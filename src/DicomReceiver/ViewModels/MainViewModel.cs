@@ -47,6 +47,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     public string StatusColor => IsRunning ? "#0F9B58" : "#E53935";
     public string ToggleButtonText => IsRunning ? L("Stop") : L("Start");
     public string Title => L("AppTitle");
+    public string BurnLabel => L("Burn");
+
+    public event EventHandler? LanguageChanged;
 
     public ICommand ToggleScpCommand { get; }
     public ICommand OpenSettingsCommand { get; }
@@ -167,7 +170,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
             OnPropertyChanged(nameof(StatusText));
             OnPropertyChanged(nameof(Title));
             OnPropertyChanged(nameof(ToggleButtonText));
+            OnPropertyChanged(nameof(BurnLabel));
 
+            LanguageChanged?.Invoke(this, EventArgs.Empty);
             AddLog(L("RestartRequired"));
         }
     }
@@ -240,7 +245,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         }
 
         Studies.Clear();
-        AddLog("All studies deleted");
+        AddLog(L("DeleteAll"));
     }
 
     /// <summary>

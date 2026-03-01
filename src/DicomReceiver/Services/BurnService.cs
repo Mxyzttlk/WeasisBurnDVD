@@ -98,7 +98,8 @@ public class BurnService
             var psi = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-ExecutionPolicy Bypass -File \"{burnScript}\" -ZipPath \"{tempZip}\" -BurnSpeed {settings.BurnSpeed}",
+                Arguments = $"-ExecutionPolicy Bypass -File \"{burnScript}\" -ZipPath \"{tempZip}\" -BurnSpeed {settings.BurnSpeed}"
+                    + (string.IsNullOrEmpty(settings.SelectedDriveId) ? "" : $" -DriveID \"{settings.SelectedDriveId}\""),
                 UseShellExecute = false,
                 CreateNoWindow = true
             };

@@ -1,6 +1,9 @@
-using System.Linq;
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using DicomReceiver.Helpers;
 using DicomReceiver.Models;
 
 namespace DicomReceiver.Views;
@@ -8,6 +11,8 @@ namespace DicomReceiver.Views;
 public partial class SettingsDialog : Window
 {
     public AppSettings Settings { get; private set; }
+
+    private static string L(string key) => LocalizationHelper.Get(key);
 
     public SettingsDialog(AppSettings settings)
     {
@@ -21,8 +26,12 @@ public partial class SettingsDialog : Window
             BurnSpeed = settings.BurnSpeed,
             Language = settings.Language,
             AutoDeleteAfterBurn = settings.AutoDeleteAfterBurn,
-            MaxStudiesKeep = settings.MaxStudiesKeep
+            MaxStudiesKeep = settings.MaxStudiesKeep,
+            SelectedDriveId = settings.SelectedDriveId
         };
+
+        ApplyLocalization();
+        RefreshDrives();
 
         // Populate fields
         TxtAeTitle.Text = Settings.AeTitle;
@@ -60,11 +69,147 @@ public partial class SettingsDialog : Window
         UpdateMaxStudiesEnabled();
     }
 
+    private void ApplyLocalization()
+    {
+        SettingsWindow.Title = L("SettingsTitle");
+        LblAeTitle.Text = L("AeTitle") + ":";
+        LblPort.Text = L("Port") + ":";
+        LblIncomingFolder.Text = L("IncomingFolder") + ":";
+        LblTimeout.Text = L("Timeout") + ":";
+        LblBurnSpeed.Text = L("BurnSpeed") + ":";
+        LblLanguage.Text = L("Language") + ":";
+        LblAutoDelete.Text = L("AutoDeleteAfterBurn") + ":";
+        ChkAutoDelete.Content = L("AutoDeleteCheckbox");
+        LblMaxStudies.Text = L("MaxStudiesKeep") + ":";
+        LblMaxStudiesHint.Text = "  " + L("MaxStudiesHint");
+        LblDriveWriter.Text = L("DriveWriter") + ":";
+        BtnRefreshDrives.Content = "\u21BB";
+        BtnSave.Content = L("Save");
+        BtnCancel.Content = L("Cancel");
+    }
+
+    private void RefreshDrives()
+    {
+        CmbDriveWriter.Items.Clear();
+        var drives = new List<(string id, string label)>();
+
+        try
+        {
+            var discMasterType = Type.GetTypeFromProgID("IMAPI2.MsftDiscMaster2");
+            if (discMasterType == null) goto done;
+
+            var discMaster = Activator.CreateInstance(discMasterType);
+            if (discMaster == null) goto done;
+
+            try
+            {
+                dynamic master = discMaster;
+                int count = master.Count;
+
+                for (int i = 0; i < count; i++)
+                {
+                    string uniqueId = master[i];
+                    var recorderType = Type.GetTypeFromProgID("IMAPI2.MsftDiscRecorder2");
+                    if (recorderType == null) continue;
+
+                    var recorderObj = Activator.CreateInstance(recorderType);
+                    if (recorderObj == null) continue;
+
+                    try
+                    {
+                        dynamic recorder = recorderObj;
+                        recorder.InitializeDiscRecorder(uniqueId);
+
+                        string vendor = (recorder.VendorId ?? "").ToString().Trim();
+                        string product = (recorder.ProductId ?? "").ToString().Trim();
+
+                        // Get volume path (drive letter)
+                        string driveLetter = "";
+                        try
+                        {
+                            object? paths = recorder.VolumePathNames;
+                            if (paths is string[] volPaths && volPaths.Length > 0)
+                                driveLetter = volPaths[0].TrimEnd('\\');
+                        }
+                        catch { /* no volume path */ }
+
+                        string label = string.IsNullOrEmpty(driveLetter)
+                            ? $"{vendor} {product}".Trim()
+                            : $"{driveLetter} — {vendor} {product}".Trim();
+
+                        if (!string.IsNullOrEmpty(label))
+                            drives.Add((uniqueId, label));
+                    }
+                    finally
+                    {
+                        Marshal.ReleaseComObject(recorderObj);
+                    }
+                }
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(discMaster);
+            }
+        }
+        catch
+        {
+            // IMAPI2 not available
+        }
+
+        done:
+        if (drives.Count == 0)
+        {
+            // No drives found
+            CmbDriveWriter.Items.Add(new ComboBoxItem
+            {
+                Content = L("NoDrives"),
+                Tag = "",
+                IsEnabled = false
+            });
+            CmbDriveWriter.SelectedIndex = 0;
+            CmbDriveWriter.IsEnabled = false;
+        }
+        else
+        {
+            foreach (var (id, label) in drives)
+            {
+                CmbDriveWriter.Items.Add(new ComboBoxItem { Content = label, Tag = id });
+            }
+
+            // Select saved drive or first one
+            bool found = false;
+            if (!string.IsNullOrEmpty(Settings.SelectedDriveId))
+            {
+                for (int i = 0; i < CmbDriveWriter.Items.Count; i++)
+                {
+                    if (CmbDriveWriter.Items[i] is ComboBoxItem item &&
+                        item.Tag?.ToString() == Settings.SelectedDriveId)
+                    {
+                        CmbDriveWriter.SelectedIndex = i;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found)
+                CmbDriveWriter.SelectedIndex = 0;
+
+            // 1 drive → disabled (auto-selected, can't change)
+            // 2+ drives → enabled
+            CmbDriveWriter.IsEnabled = drives.Count > 1;
+        }
+    }
+
+    private void RefreshDrives_Click(object sender, RoutedEventArgs e)
+    {
+        RefreshDrives();
+    }
+
     private void BrowseFolder_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new System.Windows.Forms.FolderBrowserDialog
         {
-            Description = "Select incoming DICOM folder",
+            Description = L("IncomingFolder"),
             SelectedPath = TxtIncomingFolder.Text
         };
 
@@ -104,6 +249,9 @@ public partial class SettingsDialog : Window
 
         if (CmbLanguage.SelectedItem is ComboBoxItem langItem)
             Settings.Language = langItem.Tag.ToString()!;
+
+        if (CmbDriveWriter.SelectedItem is ComboBoxItem driveItem)
+            Settings.SelectedDriveId = driveItem.Tag?.ToString() ?? "";
 
         Settings.AutoDeleteAfterBurn = ChkAutoDelete.IsChecked == true;
 

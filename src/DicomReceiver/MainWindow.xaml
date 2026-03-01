@@ -37,17 +37,17 @@
 
                     <Button Command="{Binding OpenSettingsCommand}"
                             Style="{StaticResource DarkButton}"
-                            FontSize="13" Padding="8,4" ToolTip="Settings">
+                            FontSize="13" Padding="8,4">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="14" VerticalAlignment="Center" Margin="0,0,5,0" />
-                            <TextBlock Text="Settings" VerticalAlignment="Center" />
+                            <TextBlock x:Name="TxtSettingsLabel" Text="Settings" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                 </StackPanel>
 
                 <!-- Right: Delete all -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="Delete All"
+                    <Button x:Name="BtnDeleteAll" Content="Delete All"
                             Command="{Binding DeleteAllCommand}"
                             Style="{StaticResource DarkButton}"
                             FontSize="12" Padding="10,4" />
@@ -144,20 +144,20 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <DataGridTextColumn Header="Patient" Binding="{Binding PatientName}" Width="200" />
-                <DataGridTextColumn Header="Study Date" Binding="{Binding StudyDate}" Width="100" />
-                <DataGridTextColumn Header="Modality" Binding="{Binding Modality}" Width="80" />
-                <DataGridTextColumn Header="Series" Binding="{Binding SeriesCount}" Width="60" />
-                <DataGridTextColumn Header="Images" Binding="{Binding ImageCount}" Width="70" />
-                <DataGridTextColumn Header="Size" Binding="{Binding TotalSizeFormatted}" Width="90" />
-                <DataGridTextColumn Header="Status" Binding="{Binding StatusText}" Width="200" />
+                <DataGridTextColumn x:Name="ColPatient" Header="Patient" Binding="{Binding PatientName}" Width="200" />
+                <DataGridTextColumn x:Name="ColStudyDate" Header="Study Date" Binding="{Binding StudyDate}" Width="100" />
+                <DataGridTextColumn x:Name="ColModality" Header="Modality" Binding="{Binding Modality}" Width="80" />
+                <DataGridTextColumn x:Name="ColSeries" Header="Series" Binding="{Binding SeriesCount}" Width="60" />
+                <DataGridTextColumn x:Name="ColImages" Header="Images" Binding="{Binding ImageCount}" Width="70" />
+                <DataGridTextColumn x:Name="ColSize" Header="Size" Binding="{Binding TotalSizeFormatted}" Width="90" />
+                <DataGridTextColumn x:Name="ColStatus" Header="Status" Binding="{Binding StatusText}" Width="200" />
 
                 <!-- Action buttons -->
                 <DataGridTemplateColumn Header="" Width="150">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <Button Content="Burn"
+                                <Button Content="{Binding DataContext.BurnLabel, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                         Command="{Binding DataContext.BurnStudyCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                         CommandParameter="{Binding}"
                                         Style="{StaticResource AccentButton}"
@@ -183,9 +183,9 @@
         <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
             <DockPanel>
                 <DockPanel DockPanel.Dock="Top" Margin="8,4">
-                    <TextBlock Text="Log" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                    <TextBlock x:Name="TxtLogLabel" Text="Log" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
                                FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <Button Content="Clear" Command="{Binding ClearLogCommand}"
+                    <Button x:Name="BtnClearLog" Content="Clear" Command="{Binding ClearLogCommand}"
                             Style="{StaticResource DarkButton}"
                             FontSize="10" Padding="6,2" HorizontalAlignment="Right" />
                 </DockPanel>

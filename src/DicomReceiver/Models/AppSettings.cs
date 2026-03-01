@@ -10,4 +10,5 @@ public class AppSettings
     public string Language { get; set; } = "auto";
     public bool AutoDeleteAfterBurn { get; set; } = true;
     public int MaxStudiesKeep { get; set; } = 0; // 0 = unlimited
+    public string SelectedDriveId { get; set; } = ""; // empty = auto-detect
 }
