@@ -9,8 +9,8 @@
 # ============================================================================
 
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$ZipPath,
+    [string]$ZipPath = "",
+    [string]$DicomFolder = "",
     [string]$DriveID = "",
     [int]$BurnSpeed = 4,
     [switch]$AutoConfirm,
@@ -935,8 +935,23 @@ Clear-Staging
 # Step 2b: Add Windows Defender exclusion for temp dir (prevents 100% CPU during extraction)
 Add-DefenderExclusion
 
-# Step 3: Extract ZIP
-$extractedDir = Expand-PatientZip -Zip $ZipPath
+# Validate input: one of ZipPath or DicomFolder must be provided
+if (-not $ZipPath -and -not $DicomFolder) {
+    Write-Err "Specificati -ZipPath sau -DicomFolder"
+    exit 1
+}
+
+# Step 3: Extract ZIP or use provided folder
+if ($DicomFolder) {
+    if (-not (Test-Path $DicomFolder)) {
+        Write-Err "Folderul DICOM nu exista: $DicomFolder"
+        exit 1
+    }
+    $extractedDir = $DicomFolder
+    Write-Ok "Folder DICOM primit: $DicomFolder"
+} else {
+    $extractedDir = Expand-PatientZip -Zip $ZipPath
+}
 
 # Step 4: Copy DICOM files to staging with proper structure
 Copy-DicomToStaging -ExtractedDir $extractedDir

@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using DicomReceiver.Models;
+using FellowOakDicom;
+using FellowOakDicom.Media;
 
 namespace DicomReceiver.Services;
 
@@ -12,8 +14,9 @@ public class BurnService
     public event EventHandler<string>? LogMessage;
 
     /// <summary>
-    /// Burns a completed study by calling burn-gui.ps1 as an external process.
-    /// The study's DICOM folder is zipped first, then passed to the burn pipeline.
+    /// Burns a completed study by calling burn.ps1 as an external process.
+    /// Prepares a folder with normalized DICOM structure + DICOMDIR (via fo-dicom),
+    /// then passes it to burn.ps1 -DicomFolder (no ZIP creation/extraction needed).
     /// </summary>
     public async Task BurnStudyAsync(ReceivedStudy study, AppSettings settings)
     {
@@ -22,6 +25,8 @@ public class BurnService
 
         study.Status = StudyStatus.Burning;
         study.StatusText = "Validating...";
+
+        string? preparedDir = null;
 
         try
         {
@@ -70,36 +75,45 @@ public class BurnService
                 throw new FileNotFoundException("Burn script not found");
 
             // ============================================================
-            // Create ZIP from DICOM folder
+            // Prepare DICOM folder with normalized structure + DICOMDIR
+            // No ZIP needed — files are already on disk from C-STORE SCP
             // ============================================================
-            var tempZip = Path.Combine(Path.GetTempPath(), $"dicom-burn-{study.StudyInstanceUid[..8]}.zip");
+            preparedDir = Path.Combine(Path.GetTempPath(),
+                $"dicom-prepared-{study.StudyInstanceUid[..Math.Min(8, study.StudyInstanceUid.Length)]}");
 
-            study.StatusText = "Creating ZIP...";
-            LogMessage?.Invoke(this, $"Creating ZIP: {tempZip}");
+            if (Directory.Exists(preparedDir))
+                Directory.Delete(preparedDir, true);
 
-            if (File.Exists(tempZip)) File.Delete(tempZip);
-            await Task.Run(() => System.IO.Compression.ZipFile.CreateFromDirectory(study.StoragePath, tempZip));
+            study.StatusText = "Preparing...";
+            LogMessage?.Invoke(this, "Preparing DICOM folder + DICOMDIR...");
 
-            // Verify ZIP was actually created and is not empty
-            var zipInfo = new FileInfo(tempZip);
-            if (!zipInfo.Exists || zipInfo.Length == 0)
+            await Task.Run(() => PrepareDicomFolder(study.StoragePath, preparedDir));
+
+            // Verify DICOMDIR was created
+            var dicomdirPath = Path.Combine(preparedDir, "DICOMDIR");
+            if (File.Exists(dicomdirPath))
             {
-                throw new IOException("ZIP creation failed — file is empty or missing");
+                LogMessage?.Invoke(this, "DICOMDIR generated (fo-dicom)");
+            }
+            else
+            {
+                LogMessage?.Invoke(this, "WARNING: DICOMDIR generation failed — disc will work with Weasis but not medical workstations");
             }
 
-            LogMessage?.Invoke(this, $"ZIP created: {FormatSize(zipInfo.Length)}");
-
             // ============================================================
-            // Launch burn script
+            // Launch burn script with -DicomFolder (no ZIP)
             // ============================================================
             study.StatusText = "Burning...";
             LogMessage?.Invoke(this, $"Launching burn: {Path.GetFileName(burnScript)}");
 
+            var args = $"-ExecutionPolicy Bypass -File \"{burnScript}\" -DicomFolder \"{preparedDir}\" -BurnSpeed {settings.BurnSpeed}";
+            if (!string.IsNullOrEmpty(settings.SelectedDriveId))
+                args += $" -DriveID \"{settings.SelectedDriveId}\"";
+
             var psi = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-ExecutionPolicy Bypass -File \"{burnScript}\" -ZipPath \"{tempZip}\" -BurnSpeed {settings.BurnSpeed}"
-                    + (string.IsNullOrEmpty(settings.SelectedDriveId) ? "" : $" -DriveID \"{settings.SelectedDriveId}\""),
+                Arguments = args,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
@@ -127,8 +141,9 @@ public class BurnService
                 throw new InvalidOperationException("Failed to start burn process");
             }
 
-            // Cleanup temp ZIP
-            try { if (File.Exists(tempZip)) File.Delete(tempZip); } catch { }
+            // Cleanup prepared folder (temp data)
+            try { if (Directory.Exists(preparedDir)) Directory.Delete(preparedDir, true); } catch { }
+            preparedDir = null;
 
             // Cleanup incoming DICOM files after successful burn — prevents disk filling up
             // 100 patients × 80 MB = 8 GB accumulated without cleanup
@@ -154,7 +169,99 @@ public class BurnService
             study.Status = StudyStatus.Error;
             study.StatusText = $"Error: {ex.Message}";
             LogMessage?.Invoke(this, $"Burn error: {ex.Message}");
+
+            // Cleanup prepared folder on error too
+            try { if (preparedDir != null && Directory.Exists(preparedDir)) Directory.Delete(preparedDir, true); } catch { }
         }
+    }
+
+    /// <summary>
+    /// Prepares a folder with normalized DICOM structure + DICOMDIR for burning.
+    /// Structure matches what burn.ps1 expects (mimics PACS "Exclude Viewer" ZIP):
+    ///   prepared/
+    ///   ├── DICOMDIR          ← generated by fo-dicom (paths match IMAGES/)
+    ///   └── IMAGES/           ← normalized DICOM files (8.3 naming, DICOM Part 10 compliant)
+    ///       ├── 001/          ← series 1
+    ///       │   ├── 00001.DCM
+    ///       │   └── 00002.DCM
+    ///       └── 002/          ← series 2
+    ///
+    /// burn.ps1 sees DICOMDIR at root → treats it like a PACS ZIP → junctions IMAGES/ to disc root.
+    /// Medical workstations read DICOMDIR → paths point to IMAGES\001\00001.DCM → correct!
+    /// </summary>
+    private void PrepareDicomFolder(string studyPath, string outputDir)
+    {
+        Directory.CreateDirectory(outputDir);
+        var imagesDir = Path.Combine(outputDir, "IMAGES");
+        Directory.CreateDirectory(imagesDir);
+
+        var dicomDir = new DicomDirectory();
+        var sourceDir = new DirectoryInfo(studyPath);
+
+        // Enumerate series directories (incoming/{StudyUID}/{SeriesUID}/)
+        var seriesDirs = sourceDir.GetDirectories();
+        int seriesNum = 0;
+
+        foreach (var seriesDir in seriesDirs)
+        {
+            seriesNum++;
+            var seriesName = seriesNum.ToString("D3"); // 001, 002, ...
+            var destSeriesDir = Path.Combine(imagesDir, seriesName);
+            Directory.CreateDirectory(destSeriesDir);
+
+            var files = seriesDir.GetFiles("*.dcm", SearchOption.AllDirectories);
+            int fileNum = 0;
+
+            foreach (var file in files)
+            {
+                fileNum++;
+                var fileName = fileNum.ToString("D5") + ".DCM"; // 00001.DCM, 00002.DCM, ...
+                var destPath = Path.Combine(destSeriesDir, fileName);
+                File.Copy(file.FullName, destPath);
+
+                // Add to DICOMDIR with correct relative path
+                try
+                {
+                    var dcmFile = DicomFile.Open(destPath);
+                    var refFileId = $@"IMAGES\{seriesName}\{fileName}";
+                    dicomDir.AddFile(dcmFile, refFileId);
+                }
+                catch
+                {
+                    // Skip files that can't be parsed as DICOM
+                }
+            }
+        }
+
+        // Also handle .dcm files directly in study root (no series subdirectory)
+        var rootFiles = sourceDir.GetFiles("*.dcm", SearchOption.TopDirectoryOnly);
+        if (rootFiles.Length > 0)
+        {
+            seriesNum++;
+            var seriesName = seriesNum.ToString("D3");
+            var destSeriesDir = Path.Combine(imagesDir, seriesName);
+            Directory.CreateDirectory(destSeriesDir);
+
+            int fileNum = 0;
+            foreach (var file in rootFiles)
+            {
+                fileNum++;
+                var fileName = fileNum.ToString("D5") + ".DCM";
+                var destPath = Path.Combine(destSeriesDir, fileName);
+                File.Copy(file.FullName, destPath);
+
+                try
+                {
+                    var dcmFile = DicomFile.Open(destPath);
+                    var refFileId = $@"IMAGES\{seriesName}\{fileName}";
+                    dicomDir.AddFile(dcmFile, refFileId);
+                }
+                catch { }
+            }
+        }
+
+        // Save DICOMDIR at prepared root (same level as IMAGES/)
+        dicomDir.Save(Path.Combine(outputDir, "DICOMDIR"));
     }
 
     private static string FormatSize(long bytes)
