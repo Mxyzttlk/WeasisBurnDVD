@@ -797,7 +797,8 @@ $completionTimer.Add_Tick({
                 [System.Windows.Media.ColorConverter]::ConvertFromString("#4CAF50")))
 
             # Launch tutorial (separate process, non-blocking)
-            $tutorialPath = Join-Path $syncHash.DiscPath "Weasis\tutorial.ps1"
+            # DiscPath is already the Weasis/ folder (set by start-weasis.bat %~dp0)
+            $tutorialPath = Join-Path $syncHash.DiscPath "tutorial.ps1"
             if (Test-Path $tutorialPath) {
                 try {
                     $discArg = $syncHash.DiscPath.TrimEnd('\') + "\."

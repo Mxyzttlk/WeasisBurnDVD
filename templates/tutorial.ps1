@@ -93,6 +93,23 @@ $totalSlides = 7
 $script:currentSlide = 1
 
 # ============================================================================
+# WAIT FOR WEASIS WINDOW (launched by splash-loader.ps1 before tutorial)
+# ============================================================================
+# Tutorial is launched right after Weasis starts, but Weasis GUI takes time
+# to fully appear (OSGI bundle loading). Wait for javaw to have a visible
+# window before showing the tutorial on top.
+$waitMax = 120  # seconds max wait
+$waitElapsed = 0
+while ($waitElapsed -lt $waitMax) {
+    $javawProc = Get-Process -Name "javaw" -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }
+    if ($javawProc) { break }
+    Start-Sleep -Seconds 2
+    $waitElapsed += 2
+}
+# If Weasis never appeared after 120s, show tutorial anyway (user may need help)
+
+# ============================================================================
 # WPF XAML LAYOUT
 # ============================================================================
 $xaml = @"
@@ -100,12 +117,11 @@ $xaml = @"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Tutorial Weasis"
         Width="920" Height="640"
-        WindowStartupLocation="CenterScreen"
-        WindowState="Maximized"
+        WindowStartupLocation="Manual"
         WindowStyle="None"
         Background="#1E1E1E"
         ResizeMode="NoResize"
-        Topmost="False"
+        Topmost="True"
         ShowInTaskbar="True">
 
     <Border CornerRadius="0" Background="#1E1E1E" BorderBrush="#333333" BorderThickness="0">
@@ -541,9 +557,24 @@ $window.Add_MouseLeftButtonDown({ param($s,$e)
     try { $window.DragMove() } catch { }
 })
 
-# --- Window Loaded ---
+# --- Window Loaded: size to WorkArea (respects taskbar) ---
 $window.Add_Loaded({ param($s,$e)
+    $wa = [System.Windows.SystemParameters]::WorkArea
+    $window.Left   = $wa.Left
+    $window.Top    = $wa.Top
+    $window.Width  = $wa.Width
+    $window.Height = $wa.Height
     Update-AllText
+
+    # Topmost=True ensures tutorial appears above Weasis.
+    # After 500ms, reset to False so user can switch between windows.
+    $resetTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $resetTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+    $resetTimer.Add_Tick({
+        $this.Stop()
+        $window.Topmost = $false
+    })
+    $resetTimer.Start()
 })
 
 # ============================================================================

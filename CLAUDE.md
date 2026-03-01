@@ -730,8 +730,108 @@ Weasis/
 
 **Encoding**: tutorial.ps1 salvat cu UTF-8 BOM (fix-encoding.ps1) — necesar pentru Cyrillic (RU)
 
+### SESSION 2026-03-01 (Tutorial fullscreen + burn retry + performance + path fix):
+
+#### 1. Tutorial fullscreen mode
+- `templates/tutorial.ps1`: `WindowState="Maximized"` — tutorial pe tot ecranul
+- Eliminat `AllowsTransparency="True"` (incompatibil cu Maximized)
+- `CornerRadius="0"` pe toate borderele (fullscreen nu necesită colțuri rotunjite)
+
+#### 2. Buton "Continuare" la burn — retry fără re-descărcare
+- `scripts/burn-gui.ps1`: când discul nu este gol (deja ars), nu se mai închide automat
+- Apare buton **"Continuare"** (verde #0F9B58) + "Închide" fără countdown
+- Texte multilingve: `BtnContinue` (Continuare/Продолжить/Continue) + `DiscSwap` (instrucțiuni)
+- STEP 11 (burn) wrapat în `while (-not $burnDone)` retry loop
+- Flux: disc error → release COM → show Continue/Close → user swap disc → Continue → re-create COM → retry burn
+- Worker thread polling: `while ($sync.DiscError -and -not $sync.CancelBurn) { Sleep 500ms }`
+- animTimer se oprește la disc error (previne flickering text), repornește la Continue
+- Staging folder rămâne intact pe durata disc error (cleanup doar după success)
+
+#### 3. Optimizări performanță (audit)
+**tutorial.ps1:**
+- `Update-LangButtons` crea 8 SolidColorBrush noi per apel → pre-create frozen singletons ($script:activeBg, etc.)
+- 4 brushes: activeBg(#0F9B58), activeFg(White), inactiveBg(#444), inactiveFg(#AAA) — Freeze() + reuse
+
+**burn-gui.ps1:**
+- SolidColorBrush create în timer callbacks → pre-create 5 frozen singletons: brushOrange, brushGreen, brushSuccess, brushError, brushDefault
+- animTimer nu se oprea la disc error → flickering — adăugat Stop()/Start()
+
+#### 4. CRITICAL FIX: Tutorial nu apărea pe disc ars
+- **Simptom**: discul ars, tutorialul nu apare
+- **Root cause**: `splash-loader.ps1` folosea `Join-Path $syncHash.DiscPath "Weasis\tutorial.ps1"`
+  - DiscPath = `F:\Weasis\` (setat de start-weasis.bat cu `%~dp0`)
+  - Rezolvare: `F:\Weasis\Weasis\tutorial.ps1` — cale dublă, fișier inexistent!
+- **Fix**: schimbat în `Join-Path $syncHash.DiscPath "tutorial.ps1"` → `F:\Weasis\tutorial.ps1` ✓
+- Verificat: `-DiscPath` pasat la tutorial.ps1 funcționează corect pentru imagini (fallback #2: `$DiscPath\tutorial\N.png`)
+
+#### Fișiere modificate:
+- `templates/tutorial.ps1` — fullscreen + frozen brushes
+- `templates/splash-loader.ps1` — fix path tutorial (eliminat "Weasis\" prefix)
+- `scripts/burn-gui.ps1` — Continue button + retry loop + frozen brushes + animTimer fix
+- Encoding re-aplicat (fix-encoding.ps1) pe toate fișierele modificate
+
+### SESSION 2026-03-01 (session 2 — Tutorial: wait for Weasis + WorkArea fix):
+
+#### Bug 1 FIX: Tutorial apare ÎNAINTE de Weasis
+- **Simptom**: tutorialul apărea instant, Weasis încă nu era vizibil
+- **Root cause**: `splash-loader.ps1` lansează `tutorial.ps1` via `Start-Process` imediat după ce javaw.exe e detectat (3 sec), dar fereastra Weasis GUI apare mult mai târziu (OSGI bundle loading)
+- **Fix**: adăugat wait loop la începutul `tutorial.ps1` (înainte de `ShowDialog()`):
+  ```powershell
+  while ($waitElapsed -lt 120) {
+      $javawProc = Get-Process -Name "javaw" -ErrorAction SilentlyContinue |
+          Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero }
+      if ($javawProc) { break }
+      Start-Sleep -Seconds 2
+      $waitElapsed += 2
+  }
+  ```
+  - Verifică `MainWindowHandle -ne [IntPtr]::Zero` — fereastra Weasis e vizibilă
+  - Timeout 120 sec (dacă Weasis nu apare, arată tutorialul oricum)
+  - Sleep la fiecare 2 sec — nu consumă CPU
+
+#### Bug 2 FIX: Butoanele tutorial sub taskbar
+- **Simptom**: în `WindowState="Maximized"` + `WindowStyle="None"`, WPF acoperea și taskbar-ul
+- **Root cause**: WPF Maximized cu None style ignoră WorkArea, folosește ecranul complet
+- **Fix**: eliminat `WindowState="Maximized"`, adăugat `WindowStartupLocation="Manual"`, setat dimensiunile din `SystemParameters.WorkArea` în `Loaded` event:
+  ```powershell
+  $wa = [System.Windows.SystemParameters]::WorkArea
+  $window.Left   = $wa.Left
+  $window.Top    = $wa.Top
+  $window.Width  = $wa.Width
+  $window.Height = $wa.Height
+  ```
+  - Respectă taskbar-ul (jos, sus, stânga, dreapta — funcționează cu orice poziție)
+  - Vizual identic cu Maximized, dar butoanele sunt vizibile
+
+#### Bug 3 FIX: Tutorial apare ÎN SPATELE Weasis
+- **Simptom**: după fix-ul wait loop, tutorialul apărea în spate — Weasis deja avea focus
+- **Root cause**: Windows nu permite unei ferestre noi să fure focus de la fereastra activă. După wait loop, Weasis e activ → tutorial se deschide în background
+- **Fix**: `Topmost="True"` în XAML + resetare la `False` după 500ms via DispatcherTimer:
+  ```powershell
+  # In Loaded event:
+  $resetTimer = New-Object System.Windows.Threading.DispatcherTimer
+  $resetTimer.Interval = [TimeSpan]::FromMilliseconds(500)
+  $resetTimer.Add_Tick({
+      $this.Stop()
+      $window.Topmost = $false
+  })
+  $resetTimer.Start()
+  ```
+  - `Topmost=True` forțează fereastra deasupra la deschidere
+  - După 500ms devine fereastră normală — user poate comuta cu Alt+Tab/click
+
+#### Fișiere modificate:
+- `templates/tutorial.ps1` — wait loop + WorkArea sizing + Topmost trick
+- Encoding re-aplicat (fix-encoding.ps1)
+
 ### NEXT STEPS:
 - ~~**Tutorial WPF**: în lucru~~ DONE
+- ~~**Tutorial fullscreen + path fix + performance**~~ DONE
+- ~~**Burn retry (Continue button)**~~ DONE
+- ~~**Test tutorial pe disc ars**~~ DONE (funcționează, 2 buguri găsite ↑)
+- ~~**Fix tutorial: ordinea apariției**~~ DONE (wait for MainWindowHandle)
+- ~~**Fix tutorial: butoane sub taskbar**~~ DONE (WorkArea sizing)
+- **Test buton Continue** — disc ne-gol → swap → Continue → burn reușit
 - Add "Open Source Attribution" section to `templates/README.html`
 - ~~Create .gitignore (tools/, downloads/ excluded)~~ DONE
 - Test on another computer (clean environment, no .weasis cache)
