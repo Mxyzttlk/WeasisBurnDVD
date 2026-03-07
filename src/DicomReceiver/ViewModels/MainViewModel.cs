@@ -184,6 +184,13 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         // Auto-start SCP
         StartScp();
+
+        // Scan incoming folder for existing studies from previous session.
+        // In service mode, ScanIncomingFolder() runs every tick — but the first scan
+        // won't happen until the timer fires (1 sec). This call ensures immediate discovery.
+        // In non-service mode, ScanIncomingFolder() is NOT called from the timer,
+        // so this is the ONLY way to discover leftover studies from a previous run.
+        ScanIncomingFolder();
     }
 
     private void ToggleScp()
