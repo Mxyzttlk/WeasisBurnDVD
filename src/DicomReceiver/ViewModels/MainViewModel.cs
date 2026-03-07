@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.ServiceProcess;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -279,6 +280,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         if (param is not ReceivedStudy study) return;
         if (study.Status != StudyStatus.Complete) return;
 
+        // Pre-burn disc check — poll IMAPI2 for blank media (max 30 sec)
+        if (!await WaitForDisc(study)) return;
+
         await _burnService.BurnStudyAsync(study, _settings);
 
         // Auto-delete from queue after successful burn
@@ -310,6 +314,10 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         if (result != MessageBoxResult.Yes) return;
 
+        // Pre-burn disc check — poll IMAPI2 for blank media (max 30 sec)
+        // Use first selected study for status display
+        if (!await WaitForDisc(selected[0])) return;
+
         // Clear DataGrid selection before burning (prevents re-click)
         RequestClearSelection?.Invoke(this, EventArgs.Empty);
 
@@ -326,6 +334,49 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
                 AddLog($"Auto-deleted: {study.PatientName}");
             }
         }
+    }
+
+    /// <summary>
+    /// Polls IMAPI2 for blank disc every 2 seconds (max 30 sec).
+    /// Shows "Waiting for disc..." in study StatusText during polling.
+    /// Returns true if disc detected, false if timeout (study reverts to Complete).
+    /// </summary>
+    private async Task<bool> WaitForDisc(ReceivedStudy study)
+    {
+        var previousStatus = study.Status;
+        study.Status = StudyStatus.Burning;
+        study.StatusText = L("WaitingForDisc");
+        AddLog(L("WaitingForDisc"));
+
+        bool discReady = false;
+        string driveName = "";
+
+        // Poll every 2 sec, max 15 attempts = 30 sec
+        for (int i = 0; i < 15; i++)
+        {
+            (discReady, driveName) = _burnService.CheckDiscReady(_settings);
+            if (discReady) break;
+
+            // Update status with countdown
+            var remaining = (15 - i) * 2;
+            study.StatusText = $"{L("WaitingForDisc")} ({remaining}s)";
+
+            await Task.Delay(2000);
+        }
+
+        if (discReady)
+        {
+            var msg = string.Format(L("DiscDetected"), driveName);
+            AddLog(msg);
+            // Status stays Burning — BurnStudyAsync will continue
+            return true;
+        }
+
+        // Timeout — revert to Complete for retry
+        study.Status = StudyStatus.Complete;
+        study.StatusText = string.Format(L("DiscNotFound"), driveName);
+        AddLog(string.Format(L("DiscNotFound"), driveName));
+        return false;
     }
 
     /// <summary>

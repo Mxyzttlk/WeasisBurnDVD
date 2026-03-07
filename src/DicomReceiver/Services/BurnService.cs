@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using DicomReceiver.Helpers;
 using DicomReceiver.Models;
@@ -16,6 +17,92 @@ public class BurnService
     public event EventHandler<string>? LogMessage;
 
     private void Log(string msg) => LogMessage?.Invoke(this, msg);
+
+    /// <summary>
+    /// Checks if a blank disc is inserted in the optical drive using IMAPI2 COM.
+    /// Returns (ready, driveName) — ready=true if blank media detected.
+    /// Each call creates and releases COM objects (no persistent state).
+    /// </summary>
+    public (bool ready, string driveName) CheckDiscReady(AppSettings settings)
+    {
+        object? discMaster = null;
+        object? recorderObj = null;
+        object? formatObj = null;
+
+        try
+        {
+            // 1. Enumerate drives
+            var masterType = Type.GetTypeFromProgID("IMAPI2.MsftDiscMaster2");
+            if (masterType == null) return (false, "");
+
+            discMaster = Activator.CreateInstance(masterType);
+            if (discMaster == null) return (false, "");
+
+            dynamic master = discMaster;
+            if (master.Count == 0) return (false, "");
+
+            // 2. Find recorder (by SelectedDriveId or first drive)
+            var recorderType = Type.GetTypeFromProgID("IMAPI2.MsftDiscRecorder2");
+            if (recorderType == null) return (false, "");
+
+            string? driveId = null;
+            if (!string.IsNullOrEmpty(settings.SelectedDriveId))
+            {
+                for (int i = 0; i < master.Count; i++)
+                {
+                    if ((string)master[i] == settings.SelectedDriveId)
+                    {
+                        driveId = settings.SelectedDriveId;
+                        break;
+                    }
+                }
+            }
+            driveId ??= (string)master[0]; // Fallback to first drive
+
+            recorderObj = Activator.CreateInstance(recorderType);
+            if (recorderObj == null) return (false, "");
+
+            dynamic recorder = recorderObj;
+            recorder.InitializeDiscRecorder(driveId);
+
+            // Get drive letter for display
+            string driveName = "";
+            try
+            {
+                object? paths = recorder.VolumePathNames;
+                if (paths is string[] volPaths && volPaths.Length > 0)
+                    driveName = volPaths[0].TrimEnd('\\');
+            }
+            catch { /* no volume path */ }
+
+            // 3. Check media status
+            var formatType = Type.GetTypeFromProgID("IMAPI2.MsftDiscFormat2Data");
+            if (formatType == null) return (false, driveName);
+
+            formatObj = Activator.CreateInstance(formatType);
+            if (formatObj == null) return (false, driveName);
+
+            dynamic format = formatObj;
+            format.Recorder = recorder;
+            format.ClientName = "WeasisBurn";
+
+            bool mediaReady = format.CurrentMediaStatus != null &&
+                              (int)format.CurrentMediaStatus != 0;
+
+            return (mediaReady, driveName);
+        }
+        catch
+        {
+            // IMAPI2 not available or COM error — can't check
+            return (false, "");
+        }
+        finally
+        {
+            if (formatObj != null) Marshal.ReleaseComObject(formatObj);
+            if (recorderObj != null) Marshal.ReleaseComObject(recorderObj);
+            if (discMaster != null) Marshal.ReleaseComObject(discMaster);
+        }
+    }
 
     /// <summary>
     /// Burns a completed study by calling burn.ps1 as an external process.

@@ -73,6 +73,9 @@ public static class LocalizationHelper
             ["HideAllTooltip"] = "Ascundere (sterge toate metadatele)",
             ["AnonymizeApplied"] = "Anonimizare aplicata: {0} fisiere",
             ["HideAllApplied"] = "Metadate sterse: {0} fisiere",
+            ["WaitingForDisc"] = "Asteptare disc...",
+            ["DiscNotFound"] = "Disc negasit ({0})",
+            ["DiscDetected"] = "Disc detectat ({0})",
         },
         ["ru"] = new()
         {
@@ -138,6 +141,9 @@ public static class LocalizationHelper
             ["HideAllTooltip"] = "\u0421\u043a\u0440\u044b\u0442\u044c \u0432\u0441\u0435 (\u0443\u0434\u0430\u043b\u044f\u0435\u0442 \u0432\u0441\u0435 \u043c\u0435\u0442\u0430\u0434\u0430\u043d\u043d\u044b\u0435)",
             ["AnonymizeApplied"] = "\u0410\u043d\u043e\u043d\u0438\u043c\u0438\u0437\u0430\u0446\u0438\u044f \u043f\u0440\u0438\u043c\u0435\u043d\u0435\u043d\u0430: {0} \u0444\u0430\u0439\u043b\u043e\u0432",
             ["HideAllApplied"] = "\u041c\u0435\u0442\u0430\u0434\u0430\u043d\u043d\u044b\u0435 \u0443\u0434\u0430\u043b\u0435\u043d\u044b: {0} \u0444\u0430\u0439\u043b\u043e\u0432",
+            ["WaitingForDisc"] = "\u041e\u0436\u0438\u0434\u0430\u043d\u0438\u0435 \u0434\u0438\u0441\u043a\u0430...",
+            ["DiscNotFound"] = "\u0414\u0438\u0441\u043a \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d ({0})",
+            ["DiscDetected"] = "\u0414\u0438\u0441\u043a \u043e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d ({0})",
         },
         ["en"] = new()
         {
@@ -203,6 +209,9 @@ public static class LocalizationHelper
             ["HideAllTooltip"] = "Hide All (removes all metadata)",
             ["AnonymizeApplied"] = "Anonymized: {0} files",
             ["HideAllApplied"] = "Metadata removed: {0} files",
+            ["WaitingForDisc"] = "Waiting for disc...",
+            ["DiscNotFound"] = "Disc not found ({0})",
+            ["DiscDetected"] = "Disc detected ({0})",
         }
     };
 
