@@ -92,7 +92,8 @@
       "Bash(dotnet run)",
       "Bash(dotnet new console --force)",
       "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj)",
-      "Bash(dotnet build src/DicomReceiver/DicomReceiver.sln)"
+      "Bash(dotnet build src/DicomReceiver/DicomReceiver.sln)",
+      "Bash(dotnet build --verbosity quiet)"
     ]
   }
 }

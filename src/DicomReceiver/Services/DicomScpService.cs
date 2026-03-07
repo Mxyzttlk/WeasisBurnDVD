@@ -15,6 +15,7 @@ public class FileReceivedEventArgs : EventArgs
     public required string StudyDate { get; init; }
     public required string Modality { get; init; }
     public required string SeriesInstanceUid { get; init; }
+    public string SeriesDescription { get; init; } = "";
     public required string FilePath { get; init; }
     public required long FileSize { get; init; }
 }
@@ -139,6 +140,7 @@ public class CStoreScp : DicomService, IDicomServiceProvider, IDicomCStoreProvid
             var patientId = dataset.GetSingleValueOrDefault(DicomTag.PatientID, "");
             var studyDate = dataset.GetSingleValueOrDefault(DicomTag.StudyDate, "");
             var modality = dataset.GetSingleValueOrDefault(DicomTag.Modality, "OT");
+            var seriesDescription = dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, "");
 
             // Save to: incoming/{StudyUID}/{SeriesUID}/{SOPUID}.dcm
             var studyDir = Path.Combine(IncomingFolder, studyUid);
@@ -158,6 +160,7 @@ public class CStoreScp : DicomService, IDicomServiceProvider, IDicomCStoreProvid
                 StudyDate = studyDate,
                 Modality = modality,
                 SeriesInstanceUid = seriesUid,
+                SeriesDescription = seriesDescription,
                 FilePath = filePath,
                 FileSize = fileSize
             });

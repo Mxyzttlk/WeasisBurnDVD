@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyDescriptionAttribute("DICOM C-STORE SCP Windows Service for Weasis Burn")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+f43e26614549e8680720042ebba964f2c68bc50e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46c9265767da0e0273d2a2490dd18e447c67a98d")]
 [assembly: System.Reflection.AssemblyProductAttribute("DicomReceiverService")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DicomReceiverService")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

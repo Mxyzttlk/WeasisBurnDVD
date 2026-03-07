@@ -111,7 +111,70 @@
                 </Style>
             </DataGrid.CellStyle>
 
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                    <Setter Property="Background" Value="{StaticResource BackgroundBrush}" />
+                    <Setter Property="DetailsVisibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsExpanded}" Value="True">
+                            <Setter Property="DetailsVisibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
+
+            <DataGrid.RowDetailsTemplate>
+                <DataTemplate>
+                    <ItemsControl ItemsSource="{Binding Series}" Margin="40,4,4,8">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#252525" CornerRadius="3" Padding="8,5" Margin="0,1">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="90" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="30" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Modality}"
+                                                   Foreground="{StaticResource TextPrimaryBrush}" FontSize="12" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="{Binding ImageCount, StringFormat='{}{0} img'}"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding SizeFormatted}"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="3" Text="{Binding SeriesDescription}" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center"
+                                                   ToolTip="{Binding SeriesInstanceUid}" />
+                                        <Button Grid.Column="4" Content="X"
+                                                Command="{Binding DataContext.DeleteSeriesCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                CommandParameter="{Binding}"
+                                                Style="{StaticResource DarkButton}"
+                                                Padding="4,1" FontSize="10" Foreground="#E53935"
+                                                Width="24" Height="22" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </DataTemplate>
+            </DataGrid.RowDetailsTemplate>
+
             <DataGrid.Columns>
+                <!-- Expand/Collapse toggle -->
+                <DataGridTemplateColumn Header="" Width="30" CanUserResize="False">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding ExpandButtonText}"
+                                    Command="{Binding DataContext.ToggleExpandCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                    CommandParameter="{Binding}"
+                                    Style="{StaticResource DarkButton}"
+                                    Padding="0" FontSize="14" FontWeight="Bold"
+                                    Width="24" Height="24" HorizontalAlignment="Center" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
                 <!-- Status indicator -->
                 <DataGridTemplateColumn Header="" Width="32" CanUserResize="False">
                     <DataGridTemplateColumn.CellTemplate>

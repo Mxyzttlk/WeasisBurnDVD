@@ -62,6 +62,8 @@ public static class LocalizationHelper
             ["ServiceRestarted"] = "Serviciul DICOM a fost repornit",
             ["ServiceRestartFailed"] = "Eroare la repornirea serviciului",
             ["ServiceNotInstalled"] = "Serviciul DICOM nu este instalat",
+            ["ConfirmDeleteSeries"] = "Sigur doriti sa stergeti aceasta serie?",
+            ["SeriesDeleted"] = "Serie stearsa",
         },
         ["ru"] = new()
         {
@@ -116,6 +118,8 @@ public static class LocalizationHelper
             ["ServiceRestarted"] = "\u0421\u0435\u0440\u0432\u0438\u0441 DICOM \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0449\u0435\u043d",
             ["ServiceRestartFailed"] = "\u041e\u0448\u0438\u0431\u043a\u0430 \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0441\u043a\u0430 \u0441\u0435\u0440\u0432\u0438\u0441\u0430",
             ["ServiceNotInstalled"] = "\u0421\u0435\u0440\u0432\u0438\u0441 DICOM \u043d\u0435 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d",
+            ["ConfirmDeleteSeries"] = "\u0412\u044b \u0443\u0432\u0435\u0440\u0435\u043d\u044b, \u0447\u0442\u043e \u0445\u043e\u0442\u0438\u0442\u0435 \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u044d\u0442\u0443 \u0441\u0435\u0440\u0438\u044e?",
+            ["SeriesDeleted"] = "\u0421\u0435\u0440\u0438\u044f \u0443\u0434\u0430\u043b\u0435\u043d\u0430",
         },
         ["en"] = new()
         {
@@ -170,6 +174,8 @@ public static class LocalizationHelper
             ["ServiceRestarted"] = "DICOM service restarted",
             ["ServiceRestartFailed"] = "Service restart failed",
             ["ServiceNotInstalled"] = "DICOM service not installed",
+            ["ConfirmDeleteSeries"] = "Are you sure you want to delete this series?",
+            ["SeriesDeleted"] = "Series deleted",
         }
     };
 

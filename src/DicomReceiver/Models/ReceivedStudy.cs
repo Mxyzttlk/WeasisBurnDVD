@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace DicomReceiver.Models;
@@ -50,6 +51,25 @@ public partial class ReceivedStudy : ObservableObject
 
     [ObservableProperty]
     private string _storagePath = "";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ExpandButtonText))]
+    private bool _isExpanded;
+
+    /// <summary>
+    /// Collection of series within this study — populated by StudyMonitorService.
+    /// Used for expandable row details in DataGrid.
+    /// </summary>
+    public ObservableCollection<ReceivedSeries> Series { get; } = new();
+
+    /// <summary>
+    /// Flag set by StudyMonitorService after dedup HashSets are cleaned for Done/Error studies.
+    /// Prevents repeated TryRemove on subsequent DispatcherTimer ticks.
+    /// Reset to false if study returns to Receiving (re-send scenario).
+    /// </summary>
+    public bool TrackingCleaned { get; set; }
+
+    public string ExpandButtonText => IsExpanded ? "−" : "+";
 
     public string TotalSizeFormatted
     {

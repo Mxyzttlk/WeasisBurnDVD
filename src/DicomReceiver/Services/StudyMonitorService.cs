@@ -20,8 +20,9 @@ public class StudyUpdatedEventArgs : EventArgs
 public class StudyMonitorService : IDisposable
 {
     private readonly ConcurrentDictionary<string, ReceivedStudy> _studies = new();
-    private readonly ConcurrentDictionary<string, HashSet<string>> _seriesPerStudy = new();
     private readonly ConcurrentDictionary<string, HashSet<string>> _imagesPerStudy = new();
+    // Per-series image tracking: key = "{studyUID}\t{seriesUID}" — dedup SOPInstanceUID per series
+    private readonly ConcurrentDictionary<string, HashSet<string>> _imagesPerSeries = new();
     private int _timeoutSeconds = 30;
 
     public event EventHandler<StudyCompletedEventArgs>? StudyCompleted;
@@ -56,7 +57,10 @@ public class StudyMonitorService : IDisposable
 
         // If study was already Complete, reset to Receiving (re-send scenario)
         if (study.Status == StudyStatus.Complete)
+        {
             study.Status = StudyStatus.Receiving;
+            study.TrackingCleaned = false; // Re-enable tracking cleanup for next completion
+        }
 
         // Update last file time
         study.LastFileReceivedTime = DateTime.Now;
@@ -64,7 +68,7 @@ public class StudyMonitorService : IDisposable
         // Extract SOPInstanceUID from filename (filename = SOPUID.dcm)
         var sopUid = Path.GetFileNameWithoutExtension(args.FilePath);
 
-        // Track unique images — deduplicate on SOPInstanceUID
+        // Track unique images at study level — deduplicate on SOPInstanceUID
         var images = _imagesPerStudy.GetOrAdd(args.StudyInstanceUid, _ => new HashSet<string>());
         bool isNewImage;
         lock (images)
@@ -77,13 +81,38 @@ public class StudyMonitorService : IDisposable
         if (isNewImage)
             study.TotalSizeBytes += args.FileSize;
 
-        // Track unique series
-        var series = _seriesPerStudy.GetOrAdd(args.StudyInstanceUid, _ => new HashSet<string>());
-        lock (series)
+        // Track/update ReceivedSeries in study.Series collection
+        var seriesObj = study.Series.FirstOrDefault(s => s.SeriesInstanceUid == args.SeriesInstanceUid);
+        if (seriesObj == null)
         {
-            series.Add(args.SeriesInstanceUid);
-            study.SeriesCount = series.Count;
+            seriesObj = new ReceivedSeries
+            {
+                SeriesInstanceUid = args.SeriesInstanceUid,
+                SeriesDescription = args.SeriesDescription,
+                Modality = args.Modality,
+                StoragePath = Path.GetDirectoryName(args.FilePath) ?? ""
+            };
+            study.Series.Add(seriesObj);
         }
+        else if (string.IsNullOrEmpty(seriesObj.SeriesDescription) && !string.IsNullOrEmpty(args.SeriesDescription))
+        {
+            // Update description if first file didn't have it but subsequent file does
+            seriesObj.SeriesDescription = args.SeriesDescription;
+        }
+        study.SeriesCount = study.Series.Count;
+
+        // Track unique images at series level
+        var seriesKey = $"{args.StudyInstanceUid}\t{args.SeriesInstanceUid}";
+        var seriesImages = _imagesPerSeries.GetOrAdd(seriesKey, _ => new HashSet<string>());
+        bool isNewSeriesImage;
+        lock (seriesImages)
+        {
+            isNewSeriesImage = seriesImages.Add(sopUid);
+            seriesObj.ImageCount = seriesImages.Count;
+        }
+
+        if (isNewSeriesImage)
+            seriesObj.TotalSizeBytes += args.FileSize;
 
         // Update modality if we get a more specific one
         if (args.Modality != "OT" && study.Modality == "OT")
@@ -126,13 +155,23 @@ public class StudyMonitorService : IDisposable
                 }
             }
 
-            // Cleanup tracking data for finished studies (free HashSets from memory)
-            // Study object stays in _studies (needed for UI display) but tracking HashSets are released
-            // 100 patients × 500 SOP UIDs = ~2.5 MB saved
-            if (study.Status == StudyStatus.Done || study.Status == StudyStatus.Error)
+            // Cleanup tracking HashSets for finished studies (free memory)
+            // Study.Series collection STAYS (needed for UI display of expandable rows)
+            // Only dedup HashSets are released — 100 patients × 500 SOP UIDs = ~2.5 MB saved
+            // TrackingCleaned flag prevents repeated TryRemove on subsequent ticks
+            if ((study.Status == StudyStatus.Done || study.Status == StudyStatus.Error)
+                && !study.TrackingCleaned)
             {
-                _seriesPerStudy.TryRemove(kvp.Key, out _);
                 _imagesPerStudy.TryRemove(kvp.Key, out _);
+
+                // Clean per-series tracking
+                foreach (var series in study.Series)
+                {
+                    var seriesKey = $"{kvp.Key}\t{series.SeriesInstanceUid}";
+                    _imagesPerSeries.TryRemove(seriesKey, out _);
+                }
+
+                study.TrackingCleaned = true;
             }
         }
     }
@@ -243,9 +282,65 @@ public class StudyMonitorService : IDisposable
 
     public void RemoveStudy(string studyInstanceUid)
     {
-        _studies.TryRemove(studyInstanceUid, out _);
-        _seriesPerStudy.TryRemove(studyInstanceUid, out _);
+        if (_studies.TryRemove(studyInstanceUid, out var study))
+        {
+            // Clean per-series tracking
+            foreach (var series in study.Series)
+            {
+                var seriesKey = $"{studyInstanceUid}\t{series.SeriesInstanceUid}";
+                _imagesPerSeries.TryRemove(seriesKey, out _);
+            }
+        }
         _imagesPerStudy.TryRemove(studyInstanceUid, out _);
+    }
+
+    /// <summary>
+    /// Removes a single series from tracking and recalculates study totals.
+    /// Called when user deletes a specific series from the expandable row.
+    /// </summary>
+    public void RemoveSeries(ReceivedStudy study, ReceivedSeries series)
+    {
+        // Remove per-series tracking
+        var seriesKey = $"{study.StudyInstanceUid}\t{series.SeriesInstanceUid}";
+        _imagesPerSeries.TryRemove(seriesKey, out _);
+
+        // Remove from study's series collection
+        study.Series.Remove(series);
+
+        // Recalculate study totals from remaining series
+        RecalculateStudyFromSeries(study);
+    }
+
+    /// <summary>
+    /// Recalculates SeriesCount, ImageCount, and TotalSizeBytes from the study's Series collection.
+    /// Used after series deletion to keep totals accurate.
+    /// </summary>
+    public void RecalculateStudyFromSeries(ReceivedStudy study)
+    {
+        study.SeriesCount = study.Series.Count;
+        study.ImageCount = study.Series.Sum(s => s.ImageCount);
+        study.TotalSizeBytes = study.Series.Sum(s => s.TotalSizeBytes);
+
+        // Rebuild study-level image tracking from remaining series
+        if (_imagesPerStudy.TryGetValue(study.StudyInstanceUid, out var studyImages))
+        {
+            lock (studyImages)
+            {
+                studyImages.Clear();
+                foreach (var s in study.Series)
+                {
+                    var sKey = $"{study.StudyInstanceUid}\t{s.SeriesInstanceUid}";
+                    if (_imagesPerSeries.TryGetValue(sKey, out var seriesImages))
+                    {
+                        lock (seriesImages)
+                        {
+                            foreach (var uid in seriesImages)
+                                studyImages.Add(uid);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private static string FormatPatientName(string rawName)

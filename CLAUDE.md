@@ -1106,13 +1106,130 @@ DVD-R/
 └── ...
 ```
 
+### SESSION 2026-03-07 (session 2 — DICOMDIR VR CS fix + SkipValidation):
+
+#### Problema: fo-dicom AddFile() crea 0 IMAGE records
+- **Root cause**: fo-dicom validare strictă VR CS — punctul (`.`) din `.DCM` nu e permis
+- **Eroare**: `Content "00000000.DCM" does not validate VR CS: value contains invalid character`
+- **Dar**: PACS-ul folosește `.DCM` și Siemens importează fără probleme
+- **Fix**: `DicomSetupBuilder().SkipValidation().Build()` — dezactivează validarea fo-dicom
+- **Testat**: 12/12 AddFile() OK, DICOMDIR identic cu PACS (`ReferencedFileID = DIR000\00000000\00000000.DCM`)
+
+#### BUG CRITIC găsit la analiza 100 burn-uri consecutive
+- `SkipValidation()` era apelat în `TryGenerateDicomdirFoDicom()` — PER BURN
+- Este configurație globală statică → apelat de 100 ori redundant
+- Dezactivează validarea pentru TOATĂ aplicația inclusiv C-STORE SCP
+- **Fix**: mutat în `App.xaml.cs` → `OnStartup()` — apelat O SINGURĂ DATĂ
+
+#### Fișiere modificate:
+- `App.xaml.cs` — `SkipValidation()` la startup
+- `Services/BurnService.cs` — eliminat `SkipValidation()` din per-burn call
+
+### SESSION 2026-03-07 (session 3 — DicomReceiverService Windows Service):
+
+#### Context: eFilm avea efServer.exe — DICOM SCP ca serviciu Windows
+Fișierele DICOM erau primite 24/7, chiar și când GUI-ul eFilm nu era pornit.
+Implementat aceeași funcționalitate: Windows Service cu fo-dicom C-STORE SCP.
+
+#### Proiect nou: `src/DicomReceiverService/`
+```
+src/DicomReceiverService/
+├── DicomReceiverService.csproj    ← .NET 8.0-windows Worker Service
+├── Program.cs                      ← Host builder + UseWindowsService() + SkipValidation()
+├── DicomWorker.cs                  ← BackgroundService — pornește/oprește fo-dicom SCP
+├── CStoreScp.cs                    ← Duplicat din DicomReceiver (identic, ~130 linii)
+└── SettingsService.cs              ← Citește din C:\ProgramData\WeasisBurn\
+```
+
+**NuGet packages:**
+| Package | Versiune | Rol |
+|---------|----------|-----|
+| **fo-dicom** | 5.1.3 | C-STORE SCP (identic cu WPF app) |
+| **Microsoft.Extensions.Hosting.WindowsServices** | 8.0.1 | Windows Service integration |
+
+#### De ce duplicare cod (nu shared library):
+- Doar ~130 linii de cod SCP + ~40 linii SettingsService
+- SCP-ul e stabil, nu se schimbă des
+- Shared library ar necesita restructurare 3 proiecte + build/deploy complex
+- Duplicarea e pragmatică pentru un cod mic și stabil
+
+#### Settings: partajare între Service și WPF
+| Componentă | Citește din | Scrie în |
+|---|---|---|
+| WPF App | `%APPDATA%\WeasisBurn\` (primar) | `%APPDATA%` + `C:\ProgramData\WeasisBurn\` |
+| Service | `C:\ProgramData\WeasisBurn\` | Nu scrie (read-only) |
+
+- `C:\ProgramData` accesibil tuturor conturilor (inclusiv LocalSystem)
+- Serviciul citește setările o dată la pornire
+- Schimbarea setărilor necesită restart serviciu
+
+#### Detecție port conflict (WPF app)
+- `MainViewModel.StartScp()` verifică `ServiceController.Status == Running`
+- Dacă serviciul rulează → WPF nu pornește SCP, intră în **service mode**
+- StatusText: `"SCP Service — AE: WEASIS_BURN | Port: 4006"`
+- `ScanIncomingFolder()` — scanare periodică (1 sec) detectează studii noi din `incoming/`
+
+#### ScanIncomingFolder — folder monitoring în service mode
+- DispatcherTimer (1 sec) apelează `ScanIncomingFolder()` când `_serviceMode == true`
+- Detectează subdirectoare noi în `incoming/` (fiecare = un StudyUID)
+- Parsează un .dcm per study (DicomFile.Open cu SkipLargeTags) pentru metadata
+- Contorizează toate fișierele din study dir pentru image count exact
+- `_knownStudyDirs` HashSet previne procesare duplicată
+- Studiile apar în UI la fel ca în modul normal → burn funcționează normal
+
+#### Buton "Restart Service" în Settings dialog
+- Apare lângă Cancel/Save, dezactivat dacă serviciul nu e instalat
+- `ServiceController.Stop()` + `WaitForStatus(Stopped)` + `Start()` + `WaitForStatus(Running)`
+- Tradus RO/RU/EN (RestartService, ServiceRestarted, ServiceRestartFailed, ServiceNotInstalled)
+- Necesită drepturi de administrator
+
+#### Script instalare: `scripts/install-service.ps1`
+- `sc.exe create` cu `start= auto` (pornește cu Windows)
+- Regulă firewall: `netsh advfirewall firewall add rule` pentru portul DICOM
+- Parametru `-Uninstall` pentru dezinstalare completă
+- Trebuie rulat ca Administrator
+
+#### Fișiere noi:
+- `src/DicomReceiverService/DicomReceiverService.csproj`
+- `src/DicomReceiverService/Program.cs`
+- `src/DicomReceiverService/DicomWorker.cs`
+- `src/DicomReceiverService/CStoreScp.cs`
+- `src/DicomReceiverService/SettingsService.cs`
+- `scripts/install-service.ps1`
+
+#### Fișiere modificate:
+- `DicomReceiver.sln` — adăugat proiectul DicomReceiverService
+- `DicomReceiver.csproj` — adăugat NuGet `System.ServiceProcess.ServiceController` 8.0.1
+- `Services/SettingsService.cs` — `Save()` scrie suplimentar în `C:\ProgramData\WeasisBurn\`
+- `ViewModels/MainViewModel.cs` — service detection + `_serviceMode` + `ScanIncomingFolder()`
+- `Views/SettingsDialog.xaml` — buton "Restart Service"
+- `Views/SettingsDialog.xaml.cs` — `RestartService_Click()` + `UpdateServiceButtonState()`
+- `Helpers/LocalizationHelper.cs` — 4 chei noi per limbă (RestartService, etc.)
+
+#### Performanță service (impact minim):
+- **Idle (99% din timp)**: ~30-50 MB RAM, 0% CPU
+- **Primire studiu**: 1-3% CPU, +5-20 MB temporar
+- **Identic cu efServer.exe** — stătea idle ani de zile fără probleme
+
+#### Instalare/Dezinstalare:
+```powershell
+# Build
+dotnet build src/DicomReceiverService -c Release
+# Install (Administrator)
+.\scripts\install-service.ps1
+# Uninstall
+.\scripts\install-service.ps1 -Uninstall
+```
+În producție: installer-ul (MSI/Inno Setup) va instala serviciul automat.
+
 ### Module neimplementate încă
 1. **PACS Web module** — WebView2 browser (port din pacs-burner.ps1) — LIPSEȘTE
 2. **IMAPI2 burn nativ C#** — burn direct din C# fără PowerShell — LIPSEȘTE (acum delegă la burn.ps1)
 3. **Pipeline paralel** — burn în background + descărcare simultană — LIPSEȘTE
 4. **Single exe publish** — neconfigurat
+5. **Installer (MSI/Inno Setup)** — instalare automată app WPF + Windows Service + firewall
 
-## Future: DICOM Receive (workflow Siemens/eFilm)
+## DICOM Receive (workflow Siemens/eFilm) — PARȚIAL IMPLEMENTAT
 
 ### Concept
 Recrearea workflow-ului de la stațiile Siemens: investigațiile se trimit automat prin rețea DICOM
@@ -1121,48 +1238,44 @@ transmite în timp ce pacientul e încă pe masă.
 
 ### Workflow original (eFilm):
 1. Stația Siemens (CT/MR) → **DICOM C-STORE** → PC cu eFilm (Win 7)
-2. eFilm primea studiile prin rețea → folder local
+2. eFilm primea studiile prin rețea → folder local (efServer.exe — serviciu Windows)
 3. Operatorul ardea pe disc
 
-### Workflow nou (PACS Burner):
-Două moduri de operare în aceeași aplicație:
+### Workflow nou (DicomReceiver):
+Două moduri de operare:
 
-| Mod | Sursă | Flux |
-|-----|-------|------|
-| **PACS Web** (actual) | Descărcare ZIP din browser | WebView2 → download → burn |
-| **DICOM Receive** (nou) | Stația trimite direct prin rețea | C-STORE SCP → folder → burn |
+| Componentă | Rol | Status |
+|------------|-----|--------|
+| **DicomReceiverService** (Windows Service) | C-STORE SCP 24/7, primește fișiere | ✅ IMPLEMENTAT |
+| **DicomReceiver** (WPF app) | UI: monitorizare studii, DICOMDIR, burn DVD | ✅ IMPLEMENTAT |
+| **PACS Web module** (WebView2) | Browser PACS integrat + descărcare ZIP | ❌ NEIMPLEMENTAT |
 
-### Implementare tehnică
+### Ce funcționează acum:
+- ✅ fo-dicom C-STORE SCP (înlocuiește dcmtk storescp.exe)
+- ✅ Windows Service — primește DICOM chiar și când WPF app nu rulează
+- ✅ WPF app detectează serviciul → nu pornește SCP propriu (evită port conflict)
+- ✅ Scanare folder incoming/ — studiile primite de serviciu apar în UI
+- ✅ Study lifecycle: Receiving → Complete (timeout 30s) → Burning → Done
+- ✅ DICOMDIR fo-dicom cu SkipValidation() — structură identică cu PACS
+- ✅ Fallback dcmmkdir dacă fo-dicom eșuează
+- ✅ Settings partajate (WPF → ProgramData → Service)
+- ✅ Buton "Restart Service" în Settings dialog
 
-**C-STORE SCP** — server DICOM care primește studii:
-- Tool: `storescp.exe` din **dcmtk** (deja în proiect, `tools/dcmtk/`)
-- Comandă: `storescp.exe 4006 --output-directory "incoming" --sort-on-study-uid "study"`
-- Ascultă pe port configurat (ex: 4006), salvează DICOM în subfoldere per studiu
-
-**Configurare pe stația Siemens** (face inginerul/administratorul):
+### Configurare pe stația Siemens (face inginerul/administratorul):
 
 | Câmp | Valoare |
 |------|---------|
-| AE Title | `WEASIS_BURN` (configurabil) |
+| AE Title | `WEASIS_BURN` (configurabil din Settings) |
 | IP | adresa PC-ului receptor |
-| Port | `4006` (configurabil) |
+| Port | `4006` (configurabil din Settings) |
 
-### Integrare în PACS Burner app
-- Tab/mod nou "DICOM Receive" în app
-- `storescp.exe` lansat ca proces background din app
-- Folder `incoming/` monitorizat pentru studii noi
-- Studiile completate apar în coada de burn
-- Settings: AE Title, Port, folder incoming — configurabile din UI
-
-### Problema cheie: detectarea completării studiului
-`storescp` primește fișiere individual, nu există semnal "studiu complet". Opțiuni:
-1. **Timeout** — nu mai primești fișiere de 10-15 sec → studiu considerat complet
-2. **DICOM header** — verificare `NumberOfFrames` / `ImagesInAcquisition`
-3. **Manual** — operatorul apasă "Burn" când știe că s-a terminat
+### Detectarea completării studiului
+- **Timeout** (implementat): nu mai primești fișiere `StudyTimeoutSeconds` (default 30s) → studiu `Complete`
+- Re-send handling: studiu Complete resetat la Receiving dacă primește fișiere noi
 
 ### DICOMDIR
-Fișierele primite via C-STORE sunt DICOM valide. DICOMDIR generat cu `dcmmkdir` —
-funcționează bine aici pentru că noi controlăm structura folderului.
+- **Primar**: fo-dicom `DicomDirectory` cu `SkipValidation()` — structură `DIR000\00000000\00000000.DCM`
+- **Fallback**: dcmmkdir din `tools/dcmtk/` dacă fo-dicom generează 0 IMAGE records
 
 ### Cerințe suplimentare
 - **Firewall**: portul ales trebuie deschis pe PC-ul receptor

@@ -64,6 +64,8 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     public ICommand DeleteStudyCommand { get; }
     public ICommand DeleteAllCommand { get; }
     public ICommand ClearLogCommand { get; }
+    public ICommand ToggleExpandCommand { get; }
+    public ICommand DeleteSeriesCommand { get; }
 
     public MainViewModel()
     {
@@ -78,6 +80,8 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         DeleteStudyCommand = new RelayCommand(DeleteStudy);
         DeleteAllCommand = new RelayCommand(DeleteAll);
         ClearLogCommand = new RelayCommand(() => LogEntries.Clear());
+        ToggleExpandCommand = new RelayCommand(ToggleExpand);
+        DeleteSeriesCommand = new RelayCommand(DeleteSeries);
 
         // Wire up events
         // BeginInvoke (async) — does NOT block the fo-dicom network thread
@@ -225,7 +229,63 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         {
             Studies.Remove(study);
             _monitorService.RemoveStudy(study.StudyInstanceUid);
+            _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
             AddLog($"Auto-deleted: {study.PatientName}");
+        }
+    }
+
+    private void ToggleExpand(object? param)
+    {
+        if (param is ReceivedStudy study)
+            study.IsExpanded = !study.IsExpanded;
+    }
+
+    private void DeleteSeries(object? param)
+    {
+        if (param is not ReceivedSeries series) return;
+
+        // Find parent study
+        var study = Studies.FirstOrDefault(s => s.Series.Contains(series));
+        if (study == null) return;
+
+        var result = MessageBox.Show(
+            L("ConfirmDeleteSeries"),
+            L("Delete"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        // Delete series folder from disk
+        try
+        {
+            if (Directory.Exists(series.StoragePath))
+                Directory.Delete(series.StoragePath, true);
+        }
+        catch (Exception ex)
+        {
+            AddLog($"Delete series error: {ex.Message}");
+        }
+
+        // Remove from monitor + recalculate study totals
+        _monitorService.RemoveSeries(study, series);
+
+        AddLog($"{L("SeriesDeleted")}: {series.Modality} ({series.ImageCount} img)");
+
+        // If no series remain, remove entire study
+        if (study.Series.Count == 0)
+        {
+            try
+            {
+                if (Directory.Exists(study.StoragePath))
+                    Directory.Delete(study.StoragePath, true);
+            }
+            catch { }
+
+            Studies.Remove(study);
+            _monitorService.RemoveStudy(study.StudyInstanceUid);
+            _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
+            AddLog($"Deleted empty study: {study.PatientName}");
         }
     }
 
@@ -254,6 +314,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         Studies.Remove(study);
         _monitorService.RemoveStudy(study.StudyInstanceUid);
+        _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
         AddLog($"Deleted: {study.PatientName}");
     }
 
@@ -278,6 +339,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
             }
             catch { }
             _monitorService.RemoveStudy(study.StudyInstanceUid);
+            _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
         }
 
         Studies.Clear();
@@ -319,13 +381,17 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         Studies.Remove(oldest);
         _monitorService.RemoveStudy(oldest.StudyInstanceUid);
+        _knownStudyDirs.Remove(Path.GetFileName(oldest.StoragePath));
         AddLog($"Auto-purged: {oldest.PatientName}");
     }
 
     /// <summary>
     /// Scans the incoming folder for new study directories when in service mode.
     /// The Windows Service saves files to incoming/{StudyUID}/{SeriesUID}/{SOP}.dcm.
-    /// Each new subdirectory = a new study. Parses one .dcm file per study for metadata.
+    /// Each new subdirectory = a new study.
+    /// OPTIMIZATION: reads only ONE DICOM header per series (not per file).
+    /// All files in a series have the same SeriesInstanceUID + Modality.
+    /// For 500 images across 5 series: 5 DicomFile.Open() instead of 500.
     /// Runs every 1 second from DispatcherTimer — exits fast if no new directories found.
     /// </summary>
     private void ScanIncomingFolder()
@@ -340,55 +406,97 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
                 // Skip already-known studies
                 if (_knownStudyDirs.Contains(studyDir.Name)) continue;
 
-                // Find any .dcm file to extract metadata
-                var dcmFile = studyDir.EnumerateFiles("*.dcm", SearchOption.AllDirectories).FirstOrDefault();
-                if (dcmFile == null) continue; // Empty directory, skip for now
+                // Find any .dcm file to extract study-level metadata
+                var firstDcmFile = studyDir.EnumerateFiles("*.dcm", SearchOption.AllDirectories).FirstOrDefault();
+                if (firstDcmFile == null) continue; // Empty directory, skip for now
 
                 _knownStudyDirs.Add(studyDir.Name);
 
                 try
                 {
-                    var dicom = DicomFile.Open(dcmFile.FullName, FileReadOption.SkipLargeTags);
+                    var dicom = DicomFile.Open(firstDcmFile.FullName, FileReadOption.SkipLargeTags);
                     var ds = dicom.Dataset;
 
-                    var args = new FileReceivedEventArgs
-                    {
-                        StudyInstanceUid = ds.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, studyDir.Name),
-                        PatientName = ds.GetSingleValueOrDefault(DicomTag.PatientName, "Unknown"),
-                        PatientId = ds.GetSingleValueOrDefault(DicomTag.PatientID, ""),
-                        StudyDate = ds.GetSingleValueOrDefault(DicomTag.StudyDate, ""),
-                        Modality = ds.GetSingleValueOrDefault(DicomTag.Modality, "OT"),
-                        SeriesInstanceUid = ds.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, ""),
-                        FilePath = dcmFile.FullName,
-                        FileSize = dcmFile.Length
-                    };
+                    var studyUid = ds.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, studyDir.Name);
+                    var patientName = ds.GetSingleValueOrDefault(DicomTag.PatientName, "Unknown");
+                    var patientId = ds.GetSingleValueOrDefault(DicomTag.PatientID, "");
+                    var studyDate = ds.GetSingleValueOrDefault(DicomTag.StudyDate, "");
 
-                    _monitorService.OnFileReceived(args);
+                    int totalFiles = 0;
 
-                    // Count all files for accurate image count
-                    var allFiles = studyDir.EnumerateFiles("*.dcm", SearchOption.AllDirectories).ToList();
-                    foreach (var f in allFiles.Skip(1)) // Skip first, already processed
+                    // Process per series directory — read ONE header per series
+                    // All files in a series share the same SeriesInstanceUID + Modality
+                    var seriesDirs = studyDir.GetDirectories();
+                    foreach (var seriesDir in seriesDirs)
                     {
-                        _monitorService.OnFileReceived(new FileReceivedEventArgs
+                        var seriesFiles = seriesDir.GetFiles("*.dcm", SearchOption.AllDirectories);
+                        if (seriesFiles.Length == 0) continue;
+
+                        // Read ONE file per series to get SeriesInstanceUID + Modality + Description
+                        var seriesUid = seriesDir.Name; // fallback: folder name
+                        var modality = "OT";
+                        var seriesDesc = "";
+                        try
                         {
-                            StudyInstanceUid = args.StudyInstanceUid,
-                            PatientName = args.PatientName,
-                            PatientId = args.PatientId,
-                            StudyDate = args.StudyDate,
-                            Modality = args.Modality,
-                            SeriesInstanceUid = args.SeriesInstanceUid,
-                            FilePath = f.FullName,
-                            FileSize = f.Length
-                        });
+                            var seriesDicom = DicomFile.Open(seriesFiles[0].FullName, FileReadOption.SkipLargeTags);
+                            seriesUid = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, seriesUid);
+                            modality = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.Modality, "OT");
+                            seriesDesc = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, "");
+                        }
+                        catch { /* use folder name as series UID */ }
+
+                        // Register all files in this series with the same metadata
+                        foreach (var f in seriesFiles)
+                        {
+                            _monitorService.OnFileReceived(new FileReceivedEventArgs
+                            {
+                                StudyInstanceUid = studyUid,
+                                PatientName = patientName,
+                                PatientId = patientId,
+                                StudyDate = studyDate,
+                                Modality = modality,
+                                SeriesInstanceUid = seriesUid,
+                                SeriesDescription = seriesDesc,
+                                FilePath = f.FullName,
+                                FileSize = f.Length
+                            });
+                            totalFiles++;
+                        }
+                    }
+
+                    // Handle .dcm files directly in study root (no series subdirectory)
+                    var rootFiles = studyDir.GetFiles("*.dcm", SearchOption.TopDirectoryOnly);
+                    if (rootFiles.Length > 0)
+                    {
+                        var rootSeriesUid = ds.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, "ROOT");
+                        var rootModality = ds.GetSingleValueOrDefault(DicomTag.Modality, "OT");
+                        var rootSeriesDesc = ds.GetSingleValueOrDefault(DicomTag.SeriesDescription, "");
+
+                        foreach (var f in rootFiles)
+                        {
+                            _monitorService.OnFileReceived(new FileReceivedEventArgs
+                            {
+                                StudyInstanceUid = studyUid,
+                                PatientName = patientName,
+                                PatientId = patientId,
+                                StudyDate = studyDate,
+                                Modality = rootModality,
+                                SeriesInstanceUid = rootSeriesUid,
+                                SeriesDescription = rootSeriesDesc,
+                                FilePath = f.FullName,
+                                FileSize = f.Length
+                            });
+                            totalFiles++;
+                        }
                     }
 
                     // Add study to UI collection
                     var study = _monitorService.Studies
-                        .FirstOrDefault(st => st.StudyInstanceUid == args.StudyInstanceUid);
+                        .FirstOrDefault(st => st.StudyInstanceUid == studyUid);
                     if (study != null && !Studies.Contains(study))
                         Studies.Insert(0, study);
 
-                    AddLog($"Service study detected: {args.PatientName} — {allFiles.Count} images");
+                    AddLog($"Service study detected: {patientName} — {totalFiles} images");
                 }
                 catch (Exception ex)
                 {
