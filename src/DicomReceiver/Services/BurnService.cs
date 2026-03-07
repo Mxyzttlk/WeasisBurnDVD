@@ -146,9 +146,12 @@ public class BurnService
                 }
                 else
                 {
-                    study.Status = StudyStatus.Error;
+                    // Burn failed — set back to Complete so user can retry
+                    // Files remain in DIR000/ layout — RestructureInPlace is idempotent
+                    // (skips DIR000 when scanning for series dirs, DICOMDIR regenerated on retry)
+                    study.Status = StudyStatus.Complete;
                     study.StatusText = $"Burn failed (exit {process.ExitCode})";
-                    Log($"Burn failed with exit code {process.ExitCode}");
+                    Log($"Burn failed with exit code {process.ExitCode} — study available for retry");
                 }
             }
             else
@@ -205,6 +208,9 @@ public class BurnService
         int totalFiles = 0;
         long totalSize = 0;
         string? stagingDir = null;
+
+        // Declared outside try — needed in catch for file restoration on error
+        var studySeriesRanges = new List<(ReceivedStudy study, int fromSeries, int toSeriesExclusive)>();
 
         try
         {
@@ -277,9 +283,6 @@ public class BurnService
             int totalMoved = 0;
             int totalSeries = 0;
             var allErrors = new List<string>();
-
-            // Track per-study series ranges for per-study privacy application
-            var studySeriesRanges = new List<(ReceivedStudy study, int fromSeries, int toSeriesExclusive)>();
 
             await Task.Run(() =>
             {
@@ -418,16 +421,23 @@ public class BurnService
             }
             else
             {
+                Log($"Burn failed with exit code {process.ExitCode}");
+
+                // Burn failed — restore files from staging back to individual study folders
+                // so each study can be re-burned individually
+                RestoreFilesFromStaging(stagingDir!, studySeriesRanges);
+
                 foreach (var study in studies)
                 {
-                    study.Status = StudyStatus.Error;
+                    study.Status = StudyStatus.Complete;
                     study.StatusText = $"Burn failed (exit {process.ExitCode})";
                 }
-                Log($"Burn failed with exit code {process.ExitCode}");
+                Log("Files restored — studies available for retry");
             }
 
             // ============================================================
             // Cleanup: staging folder (always) + original study folders (if AutoDelete)
+            // Only runs on SUCCESS — burn failure restores files above
             // ============================================================
             if (studies.All(s => s.Status == StudyStatus.Done))
             {
@@ -443,7 +453,6 @@ public class BurnService
                 catch (Exception ex) { Log($"Staging cleanup warning: {ex.Message}"); }
 
                 // Original study folders: only delete when AutoDelete is ON
-                // When OFF, folders may be empty (files moved to staging) but study stays in UI
                 if (settings.AutoDeleteAfterBurn)
                 {
                     foreach (var study in studies)
@@ -463,25 +472,53 @@ public class BurnService
         }
         catch (Exception ex)
         {
-            foreach (var study in studies)
-            {
-                study.Status = StudyStatus.Error;
-                study.StatusText = $"Error: {ex.Message}";
-            }
             Log($"Multi-burn error: {ex.Message}");
 
-            // Cleanup staging folder on error (prevent disk space accumulation)
-            if (stagingDir != null)
+            // Try to restore files from staging back to study folders
+            // If staging exists and has files, they were moved from original study folders
+            if (stagingDir != null && studySeriesRanges.Count > 0)
             {
                 try
                 {
-                    if (Directory.Exists(stagingDir))
+                    RestoreFilesFromStaging(stagingDir, studySeriesRanges);
+                    // Restoration succeeded — set Complete for retry
+                    foreach (var study in studies)
                     {
-                        Directory.Delete(stagingDir, true);
-                        Log($"Cleaned up staging after error: {stagingDir}");
+                        study.Status = StudyStatus.Complete;
+                        study.StatusText = $"Error: {ex.Message}";
+                    }
+                    Log("Files restored — studies available for retry");
+                }
+                catch (Exception restoreEx)
+                {
+                    // Restoration failed — keep staging (has the files!), set Error
+                    Log($"File restoration failed: {restoreEx.Message}");
+                    Log($"IMPORTANT: Files preserved in staging folder: {stagingDir}");
+                    foreach (var study in studies)
+                    {
+                        study.Status = StudyStatus.Error;
+                        study.StatusText = $"Error: {ex.Message}";
                     }
                 }
-                catch { /* best effort */ }
+            }
+            else
+            {
+                // No files were moved (error happened before restructuring) — safe cleanup
+                foreach (var study in studies)
+                {
+                    study.Status = StudyStatus.Error;
+                    study.StatusText = $"Error: {ex.Message}";
+                }
+
+                if (stagingDir != null)
+                {
+                    try
+                    {
+                        if (Directory.Exists(stagingDir))
+                            Directory.Delete(stagingDir, true);
+                    }
+                    catch { /* best effort */ }
+                }
             }
         }
     }
@@ -746,6 +783,52 @@ public class BurnService
             errors.Add($"dcmmkdir: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Restores DICOM files from staging/DIR000/ back to individual study folders.
+    /// Used when multi-burn fails — moves each study's series back so they can be re-burned.
+    /// Files end up in study.StoragePath/DIR000/{seriesNum}/*.DCM — ready for single burn retry.
+    /// After restoration, deletes the now-empty staging folder.
+    /// </summary>
+    private void RestoreFilesFromStaging(string stagingDir,
+        List<(ReceivedStudy study, int fromSeries, int toSeriesExclusive)> ranges)
+    {
+        var stagingDir000 = Path.Combine(stagingDir, "DIR000");
+        if (!Directory.Exists(stagingDir000)) return;
+
+        foreach (var (study, fromSeries, toSeriesExclusive) in ranges)
+        {
+            var studyDir000 = Path.Combine(study.StoragePath, "DIR000");
+            Directory.CreateDirectory(studyDir000);
+
+            for (int s = fromSeries; s < toSeriesExclusive; s++)
+            {
+                var seriesName = s.ToString("D8");
+                var srcSeriesDir = Path.Combine(stagingDir000, seriesName);
+                if (!Directory.Exists(srcSeriesDir)) continue;
+
+                var dstSeriesDir = Path.Combine(studyDir000, seriesName);
+                Directory.CreateDirectory(dstSeriesDir);
+
+                foreach (var file in Directory.GetFiles(srcSeriesDir))
+                {
+                    File.Move(file, Path.Combine(dstSeriesDir, Path.GetFileName(file)));
+                }
+
+                try { Directory.Delete(srcSeriesDir); } catch { }
+            }
+
+            Log($"Restored: {study.PatientName} — files moved back to {study.StoragePath}");
+        }
+
+        // Delete now-empty staging folder
+        try
+        {
+            if (Directory.Exists(stagingDir))
+                Directory.Delete(stagingDir, true);
+        }
+        catch { /* staging may have DICOMDIR remnants — non-critical */ }
     }
 
     private static string? FindDcmmkdir(string? projectRoot)

@@ -1304,4 +1304,6 @@ if ($script:workerRunspace) {
     try { $script:workerRunspace.Close(); $script:workerRunspace.Dispose() } catch { }
 }
 
+# Return non-zero exit code on burn failure — C# BurnService checks this
+if ($sync.Failed -or -not $sync.Success) { exit 1 }
 exit 0
