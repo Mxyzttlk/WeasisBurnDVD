@@ -23,8 +23,6 @@ public class FileReceivedEventArgs : EventArgs
 public class DicomScpService : IDisposable
 {
     private IDicomServer? _server;
-    private string _incomingFolder = "";
-    private string _aeTitle = "WEASIS_BURN";
 
     public event EventHandler<FileReceivedEventArgs>? FileReceived;
     public event EventHandler<string>? LogMessage;
@@ -34,8 +32,6 @@ public class DicomScpService : IDisposable
     {
         if (_server != null) return;
 
-        _aeTitle = aeTitle;
-        _incomingFolder = incomingFolder;
         Directory.CreateDirectory(incomingFolder);
 
         // Store references for the SCP handler to access

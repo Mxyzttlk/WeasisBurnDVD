@@ -53,16 +53,88 @@
                             FontSize="12" Padding="10,4" />
                 </StackPanel>
 
-                <StackPanel /> <!-- spacer -->
+                <!-- Center: Privacy toggles (multi-select) + Burn Selected + info -->
+                <StackPanel Orientation="Horizontal" Margin="10,0">
+                    <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" Margin="4,2" />
+
+                    <!-- Anonymize toggle for ALL selected studies (visible when studies selected) -->
+                    <Button Command="{Binding ToggleAnonymizeSelectedCommand}"
+                            ToolTip="{Binding AnonymizeTooltip}"
+                            Width="30" Height="30" Margin="0,0,3,0"
+                            Visibility="{Binding HasSelectedStudies, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Grid>
+                                    <Ellipse x:Name="bg" Width="26" Height="26"
+                                             Fill="{StaticResource SurfaceBrush}"
+                                             Stroke="{StaticResource BorderBrush}" StrokeThickness="1.5" />
+                                    <TextBlock x:Name="icon" Text="&#xE72E;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource TextPrimaryBrush}" />
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedAnonymizeActive}" Value="True">
+                                        <Setter TargetName="bg" Property="Fill" Value="{StaticResource AccentBrush}" />
+                                        <Setter TargetName="bg" Property="Stroke" Value="{StaticResource AccentBrush}" />
+                                        <Setter TargetName="icon" Property="Foreground" Value="White" />
+                                    </DataTrigger>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="bg" Property="Stroke" Value="{StaticResource AccentHoverBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <!-- Hide All toggle for ALL selected studies (visible when studies selected) -->
+                    <Button Command="{Binding ToggleHideAllSelectedCommand}"
+                            ToolTip="{Binding HideAllTooltip}"
+                            Width="30" Height="30" Margin="0,0,6,0"
+                            Visibility="{Binding HasSelectedStudies, Converter={StaticResource BoolToVisibilityConverter}}">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Grid>
+                                    <Ellipse x:Name="bg" Width="26" Height="26"
+                                             Fill="{StaticResource SurfaceBrush}"
+                                             Stroke="{StaticResource BorderBrush}" StrokeThickness="1.5" />
+                                    <TextBlock x:Name="icon" Text="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{StaticResource TextPrimaryBrush}" />
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedHideAllActive}" Value="True">
+                                        <Setter TargetName="bg" Property="Fill" Value="{StaticResource AccentBrush}" />
+                                        <Setter TargetName="bg" Property="Stroke" Value="{StaticResource AccentBrush}" />
+                                        <Setter TargetName="icon" Property="Foreground" Value="White" />
+                                    </DataTrigger>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="bg" Property="Stroke" Value="{StaticResource AccentHoverBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
+                    <Button Content="{Binding BurnSelectedLabel}"
+                            Command="{Binding BurnSelectedCommand}"
+                            Style="{StaticResource AccentButton}"
+                            FontSize="12" Padding="10,4"
+                            IsEnabled="{Binding HasSelectedStudies}" />
+                    <TextBlock Text="{Binding SelectedStudiesInfo}"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               FontSize="12" VerticalAlignment="Center" Margin="8,0,0,0" />
+                </StackPanel>
             </DockPanel>
         </Border>
 
         <!-- Study Queue -->
-        <DataGrid Grid.Row="1"
+        <DataGrid x:Name="StudyGrid"
+                  Grid.Row="1"
                   ItemsSource="{Binding Studies}"
                   AutoGenerateColumns="False"
                   IsReadOnly="True"
-                  SelectionMode="Single"
+                  SelectionMode="Extended"
+                  SelectionChanged="StudyGrid_SelectionChanged"
                   Background="{StaticResource BackgroundBrush}"
                   Foreground="{StaticResource TextPrimaryBrush}"
                   RowBackground="{StaticResource BackgroundBrush}"
@@ -215,11 +287,69 @@
                 <DataGridTextColumn x:Name="ColSize" Header="Size" Binding="{Binding TotalSizeFormatted}" Width="90" />
                 <DataGridTextColumn x:Name="ColStatus" Header="Status" Binding="{Binding StatusText}" Width="200" />
 
-                <!-- Action buttons -->
-                <DataGridTemplateColumn Header="" Width="150">
+                <!-- Action buttons: Privacy toggles + Burn + Delete -->
+                <DataGridTemplateColumn Header="" Width="210">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <!-- Anonymize toggle (circle) per study -->
+                                <Button Command="{Binding DataContext.ToggleAnonymizeStudyCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip="{Binding DataContext.AnonymizeTooltip, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                        Width="24" Height="24" Margin="0,0,3,0">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Grid>
+                                                <Ellipse x:Name="bg" Width="22" Height="22"
+                                                         Fill="{StaticResource SurfaceBrush}"
+                                                         Stroke="{StaticResource BorderBrush}" StrokeThickness="1.5" />
+                                                <TextBlock x:Name="icon" Text="&#xE72E;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           Foreground="{StaticResource TextPrimaryBrush}" />
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsAnonymizeActive}" Value="True">
+                                                    <Setter TargetName="bg" Property="Fill" Value="{StaticResource AccentBrush}" />
+                                                    <Setter TargetName="bg" Property="Stroke" Value="{StaticResource AccentBrush}" />
+                                                    <Setter TargetName="icon" Property="Foreground" Value="White" />
+                                                </DataTrigger>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="bg" Property="Stroke" Value="{StaticResource AccentHoverBrush}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                </Button>
+
+                                <!-- Hide All toggle (circle) per study -->
+                                <Button Command="{Binding DataContext.ToggleHideAllStudyCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip="{Binding DataContext.HideAllTooltip, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                        Width="24" Height="24" Margin="0,0,6,0">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Grid>
+                                                <Ellipse x:Name="bg" Width="22" Height="22"
+                                                         Fill="{StaticResource SurfaceBrush}"
+                                                         Stroke="{StaticResource BorderBrush}" StrokeThickness="1.5" />
+                                                <TextBlock x:Name="icon" Text="&#xE711;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           Foreground="{StaticResource TextPrimaryBrush}" />
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsHideAllActive}" Value="True">
+                                                    <Setter TargetName="bg" Property="Fill" Value="{StaticResource AccentBrush}" />
+                                                    <Setter TargetName="bg" Property="Stroke" Value="{StaticResource AccentBrush}" />
+                                                    <Setter TargetName="icon" Property="Foreground" Value="White" />
+                                                </DataTrigger>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="bg" Property="Stroke" Value="{StaticResource AccentHoverBrush}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                </Button>
+
                                 <Button Content="{Binding DataContext.BurnLabel, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                         Command="{Binding DataContext.BurnStudyCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                         CommandParameter="{Binding}"

@@ -57,6 +57,28 @@ public partial class ReceivedStudy : ObservableObject
     private bool _isExpanded;
 
     /// <summary>
+    /// DataGrid row selection for multi-study burn (Click/Ctrl+Click/Shift+Click).
+    /// Synced by SelectionChanged handler in code-behind.
+    /// Only Complete studies count for burn — others are ignored in selection info.
+    /// Cleared by RequestClearSelection event after burn starts.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isSelected;
+
+    /// <summary>
+    /// Per-study privacy mode: None (default), Anonymize, or HideAll.
+    /// Toggle buttons in each DataGrid row — mutually exclusive.
+    /// Applied at burn time (after RestructureInPlace, before DICOMDIR generation).
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAnonymizeActive))]
+    [NotifyPropertyChangedFor(nameof(IsHideAllActive))]
+    private DicomPrivacyMode _privacyMode = DicomPrivacyMode.None;
+
+    public bool IsAnonymizeActive => PrivacyMode == DicomPrivacyMode.Anonymize;
+    public bool IsHideAllActive => PrivacyMode == DicomPrivacyMode.HideAll;
+
+    /// <summary>
     /// Collection of series within this study — populated by StudyMonitorService.
     /// Used for expandable row details in DataGrid.
     /// </summary>

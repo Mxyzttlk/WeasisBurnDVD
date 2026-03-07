@@ -1,6 +1,8 @@
 using System.Collections.Specialized;
 using System.Windows;
+using System.Windows.Controls;
 using DicomReceiver.Helpers;
+using DicomReceiver.Models;
 using DicomReceiver.ViewModels;
 
 namespace DicomReceiver;
@@ -28,7 +30,30 @@ public partial class MainWindow : Window
             };
 
             vm.LanguageChanged += (s, ev) => ApplyLocalization();
+
+            // Clear DataGrid selection when ViewModel requests it (after burn completes)
+            vm.RequestClearSelection += (s, ev) => StudyGrid.SelectedItems.Clear();
         }
+    }
+
+    private void StudyGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // Sync DataGrid native selection → model IsSelected (delta-based, efficient)
+        foreach (var item in e.RemovedItems)
+        {
+            if (item is ReceivedStudy study)
+                study.IsSelected = false;
+        }
+
+        foreach (var item in e.AddedItems)
+        {
+            if (item is ReceivedStudy study)
+                study.IsSelected = true;
+        }
+
+        // Update selection info immediately (not waiting for 1s timer)
+        if (DataContext is MainViewModel vm)
+            vm.UpdateSelectedStudiesInfo();
     }
 
     private void ApplyLocalization()

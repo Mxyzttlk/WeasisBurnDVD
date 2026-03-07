@@ -11,3 +11,8 @@ app/settings.json
 src/DicomReceiver/incoming/
 src/DicomReceiver/bin/
 src/DicomReceiver/obj/
+src/DicomReceiverService/bin/
+src/DicomReceiverService/obj/
+
+# Windows device name artifact
+nul

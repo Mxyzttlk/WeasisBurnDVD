@@ -1,5 +1,12 @@
 namespace DicomReceiver.Models;
 
+public enum DicomPrivacyMode
+{
+    None,       // No modification — burn original files
+    Anonymize,  // Replace patient data with "Anonymous", blank dates
+    HideAll     // Remove all demographics/institutional metadata
+}
+
 public class AppSettings
 {
     public string AeTitle { get; set; } = "WEASIS_BURN";

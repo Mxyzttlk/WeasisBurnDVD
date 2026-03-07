@@ -6,6 +6,7 @@
     <Application.Resources>
         <!-- Converters -->
         <helpers:StudyStatusToBoolConverter x:Key="StatusToBoolConverter" />
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
 
         <!-- Dark Theme Colors -->
         <Color x:Key="BackgroundColor">#1E1E1E</Color>
@@ -29,6 +30,17 @@
         <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}" />
         <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}" />
         <SolidColorBrush x:Key="TextMutedBrush" Color="{StaticResource TextMutedColor}" />
+
+        <!-- Dark ToolTip Style -->
+        <Style TargetType="ToolTip">
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+        </Style>
 
         <!-- Global Styles -->
         <Style TargetType="Window">

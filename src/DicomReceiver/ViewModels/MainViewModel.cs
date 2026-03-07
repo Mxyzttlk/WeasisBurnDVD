@@ -55,17 +55,58 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     public string ToggleButtonText => IsRunning ? L("Stop") : L("Start");
     public string Title => L("AppTitle");
     public string BurnLabel => L("Burn");
+    public string BurnSelectedLabel => L("BurnSelected");
+
+    // Multi-study burn selection info (recalculated by DispatcherTimer every 1s)
+    private string _selectedStudiesInfo = "";
+    public string SelectedStudiesInfo
+    {
+        get => _selectedStudiesInfo;
+        set => SetProperty(ref _selectedStudiesInfo, value);
+    }
+
+    private bool _hasSelectedStudies;
+    public bool HasSelectedStudies
+    {
+        get => _hasSelectedStudies;
+        set => SetProperty(ref _hasSelectedStudies, value);
+    }
 
     public event EventHandler? LanguageChanged;
+    public event EventHandler? RequestClearSelection;
+
+    public string AnonymizeTooltip => L("AnonymizeTooltip");
+    public string HideAllTooltip => L("HideAllTooltip");
+
+    // Toolbar privacy state for multi-selection — reflects ALL selected Complete studies
+    // Active = all selected Complete studies have that mode; mixed = inactive
+    private bool _selectedAnonymizeActive;
+    public bool SelectedAnonymizeActive
+    {
+        get => _selectedAnonymizeActive;
+        set => SetProperty(ref _selectedAnonymizeActive, value);
+    }
+
+    private bool _selectedHideAllActive;
+    public bool SelectedHideAllActive
+    {
+        get => _selectedHideAllActive;
+        set => SetProperty(ref _selectedHideAllActive, value);
+    }
 
     public ICommand ToggleScpCommand { get; }
     public ICommand OpenSettingsCommand { get; }
     public ICommand BurnStudyCommand { get; }
+    public ICommand BurnSelectedCommand { get; }
     public ICommand DeleteStudyCommand { get; }
     public ICommand DeleteAllCommand { get; }
     public ICommand ClearLogCommand { get; }
     public ICommand ToggleExpandCommand { get; }
     public ICommand DeleteSeriesCommand { get; }
+    public ICommand ToggleAnonymizeStudyCommand { get; }
+    public ICommand ToggleHideAllStudyCommand { get; }
+    public ICommand ToggleAnonymizeSelectedCommand { get; }
+    public ICommand ToggleHideAllSelectedCommand { get; }
 
     public MainViewModel()
     {
@@ -77,11 +118,16 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         ToggleScpCommand = new RelayCommand(ToggleScp);
         OpenSettingsCommand = new RelayCommand(OpenSettings);
         BurnStudyCommand = new RelayCommand(BurnStudy);
+        BurnSelectedCommand = new RelayCommand(BurnSelected);
         DeleteStudyCommand = new RelayCommand(DeleteStudy);
         DeleteAllCommand = new RelayCommand(DeleteAll);
         ClearLogCommand = new RelayCommand(() => LogEntries.Clear());
         ToggleExpandCommand = new RelayCommand(ToggleExpand);
         DeleteSeriesCommand = new RelayCommand(DeleteSeries);
+        ToggleAnonymizeStudyCommand = new RelayCommand(ToggleAnonymizeStudy);
+        ToggleHideAllStudyCommand = new RelayCommand(ToggleHideAllStudy);
+        ToggleAnonymizeSelectedCommand = new RelayCommand(ToggleAnonymizeSelected);
+        ToggleHideAllSelectedCommand = new RelayCommand(ToggleHideAllSelected);
 
         // Wire up events
         // BeginInvoke (async) — does NOT block the fo-dicom network thread
@@ -130,6 +176,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
             if (_serviceMode)
                 ScanIncomingFolder();
             _monitorService.CheckAndCompleteStudies();
+            UpdateSelectedStudiesInfo();
             _monitorService.UpdateElapsedTimes();
             AutoPurgeOldStudies();
         };
@@ -211,6 +258,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
             OnPropertyChanged(nameof(Title));
             OnPropertyChanged(nameof(ToggleButtonText));
             OnPropertyChanged(nameof(BurnLabel));
+            OnPropertyChanged(nameof(BurnSelectedLabel));
+            OnPropertyChanged(nameof(AnonymizeTooltip));
+            OnPropertyChanged(nameof(HideAllTooltip));
 
             LanguageChanged?.Invoke(this, EventArgs.Empty);
             AddLog(L("RestartRequired"));
@@ -232,6 +282,149 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
             _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
             AddLog($"Auto-deleted: {study.PatientName}");
         }
+    }
+
+    private async void BurnSelected()
+    {
+        var selected = Studies
+            .Where(s => s.IsSelected && s.Status == StudyStatus.Complete)
+            .ToList();
+
+        if (selected.Count == 0) return;
+
+        // Confirm multi-burn
+        var totalSizeMB = selected.Sum(s => s.TotalSizeBytes) / (1024.0 * 1024.0);
+        var patients = selected.Select(s => s.PatientName).Distinct().ToList();
+        var label = patients.Count == 1 ? patients[0] : L("MultiplePatientsLabel");
+
+        var msg = string.Format(L("ConfirmBurnMultiple"), selected.Count, $"{totalSizeMB:F1} MB", label);
+        var result = MessageBox.Show(msg, L("BurnSelected"),
+            MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        // Clear DataGrid selection before burning (prevents re-click)
+        RequestClearSelection?.Invoke(this, EventArgs.Empty);
+
+        await _burnService.BurnMultipleStudiesAsync(selected, _settings);
+
+        // Auto-delete burned studies from queue
+        if (_settings.AutoDeleteAfterBurn)
+        {
+            foreach (var study in selected.Where(s => s.Status == StudyStatus.Done))
+            {
+                Studies.Remove(study);
+                _monitorService.RemoveStudy(study.StudyInstanceUid);
+                _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
+                AddLog($"Auto-deleted: {study.PatientName}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Recalculates SelectedStudiesInfo and HasSelectedStudies from DataGrid selection.
+    /// Called from two sources:
+    ///   1. Immediately from SelectionChanged handler (via code-behind) — instant UI feedback
+    ///   2. Every 1 second from DispatcherTimer — catches status changes (Complete→Burning)
+    /// IsSelected is synced by DataGrid.SelectionChanged handler in code-behind.
+    /// Only Complete studies count for burn — others are ignored (but remain visually selected).
+    /// </summary>
+    public void UpdateSelectedStudiesInfo()
+    {
+        int count = 0;
+        long totalBytes = 0;
+        int anonymizeCount = 0;
+        int hideAllCount = 0;
+
+        foreach (var study in Studies)
+        {
+            if (study.IsSelected && study.Status == StudyStatus.Complete)
+            {
+                count++;
+                totalBytes += study.TotalSizeBytes;
+                if (study.PrivacyMode == DicomPrivacyMode.Anonymize) anonymizeCount++;
+                else if (study.PrivacyMode == DicomPrivacyMode.HideAll) hideAllCount++;
+            }
+        }
+
+        HasSelectedStudies = count > 0;
+
+        // Toolbar privacy buttons: active only when ALL selected Complete studies have that mode
+        SelectedAnonymizeActive = count > 0 && anonymizeCount == count;
+        SelectedHideAllActive = count > 0 && hideAllCount == count;
+
+        if (count == 0)
+        {
+            SelectedStudiesInfo = "";
+        }
+        else
+        {
+            var sizeStr = totalBytes < 1024 * 1024 * 1024
+                ? $"{totalBytes / (1024.0 * 1024.0):F1} MB"
+                : $"{totalBytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
+            SelectedStudiesInfo = string.Format(L("SelectedStudiesInfo"), count, sizeStr);
+        }
+    }
+
+    private void ToggleAnonymizeStudy(object? param)
+    {
+        if (param is not ReceivedStudy study) return;
+        if (study.Status != StudyStatus.Complete) return; // Only toggle on Complete studies
+        study.PrivacyMode = study.PrivacyMode == DicomPrivacyMode.Anonymize
+            ? DicomPrivacyMode.None
+            : DicomPrivacyMode.Anonymize;
+    }
+
+    private void ToggleHideAllStudy(object? param)
+    {
+        if (param is not ReceivedStudy study) return;
+        if (study.Status != StudyStatus.Complete) return; // Only toggle on Complete studies
+        study.PrivacyMode = study.PrivacyMode == DicomPrivacyMode.HideAll
+            ? DicomPrivacyMode.None
+            : DicomPrivacyMode.HideAll;
+    }
+
+    /// <summary>
+    /// Toolbar toggle: applies Anonymize to ALL selected Complete studies.
+    /// If all selected already have Anonymize → removes it (toggles to None).
+    /// </summary>
+    private void ToggleAnonymizeSelected()
+    {
+        var selected = Studies
+            .Where(s => s.IsSelected && s.Status == StudyStatus.Complete)
+            .ToList();
+        if (selected.Count == 0) return;
+
+        // If all selected are already Anonymize → toggle OFF, else toggle ON
+        var newMode = selected.All(s => s.PrivacyMode == DicomPrivacyMode.Anonymize)
+            ? DicomPrivacyMode.None
+            : DicomPrivacyMode.Anonymize;
+
+        foreach (var study in selected)
+            study.PrivacyMode = newMode;
+
+        UpdateSelectedStudiesInfo(); // Refresh toolbar button state immediately
+    }
+
+    /// <summary>
+    /// Toolbar toggle: applies HideAll to ALL selected Complete studies.
+    /// If all selected already have HideAll → removes it (toggles to None).
+    /// </summary>
+    private void ToggleHideAllSelected()
+    {
+        var selected = Studies
+            .Where(s => s.IsSelected && s.Status == StudyStatus.Complete)
+            .ToList();
+        if (selected.Count == 0) return;
+
+        var newMode = selected.All(s => s.PrivacyMode == DicomPrivacyMode.HideAll)
+            ? DicomPrivacyMode.None
+            : DicomPrivacyMode.HideAll;
+
+        foreach (var study in selected)
+            study.PrivacyMode = newMode;
+
+        UpdateSelectedStudiesInfo();
     }
 
     private void ToggleExpand(object? param)
