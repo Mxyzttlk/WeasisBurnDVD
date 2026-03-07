@@ -540,9 +540,10 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     }
 
     /// <summary>
-    /// Auto-purge ONE oldest Done/Error study per tick when count exceeds MaxStudiesKeep.
+    /// Auto-purge ONE oldest study per tick when count exceeds MaxStudiesKeep.
     /// Runs every 1 second from DispatcherTimer — lightweight: exits immediately if disabled or under limit.
-    /// Only removes finished studies (Done/Error), never active ones (Receiving/Complete/Burning).
+    /// Priority: Done/Error first (already burned/failed), then Complete (not yet burned).
+    /// NEVER purges Receiving or Burning studies.
     /// MAX 1 purge per tick — prevents UI freeze from multiple Directory.Delete calls.
     /// At 1 purge/sec, 10 excess studies clear in 10 seconds — perfectly adequate.
     /// </summary>
@@ -553,7 +554,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         if (_settings.MaxStudiesKeep <= 0) return;
         if (Studies.Count <= _settings.MaxStudiesKeep) return;
 
-        // Find ONE oldest removable study (Done/Error) — no ToList(), stops at first match
+        // Priority 1: Find oldest Done/Error study (already burned or failed — safest to delete)
         ReceivedStudy? oldest = null;
         foreach (var s in Studies)
         {
@@ -562,7 +563,19 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
                 oldest = s;
         }
 
-        if (oldest == null) return; // All studies are active — can't purge
+        // Priority 2: If no Done/Error available, purge oldest Complete study
+        // (not yet burned, but disk space limit takes priority)
+        if (oldest == null)
+        {
+            foreach (var s in Studies)
+            {
+                if (s.Status != StudyStatus.Complete) continue;
+                if (oldest == null || s.LastFileReceivedTime < oldest.LastFileReceivedTime)
+                    oldest = s;
+            }
+        }
+
+        if (oldest == null) return; // Only Receiving/Burning remain — can't purge
 
         // Delete files from disk (may already be deleted by BurnService for Done studies)
         try

@@ -156,8 +156,9 @@ public class BurnService
                 throw new InvalidOperationException("Failed to start burn process");
             }
 
-            // Cleanup study folder after successful burn — prevents disk filling up
-            if (study.Status == StudyStatus.Done)
+            // Cleanup study folder after successful burn
+            // Only delete when AutoDeleteAfterBurn is ON — user may want to re-burn
+            if (study.Status == StudyStatus.Done && settings.AutoDeleteAfterBurn)
             {
                 try
                 {
@@ -426,11 +427,11 @@ public class BurnService
             }
 
             // ============================================================
-            // Cleanup: staging folder + original study folders
+            // Cleanup: staging folder (always) + original study folders (if AutoDelete)
             // ============================================================
             if (studies.All(s => s.Status == StudyStatus.Done))
             {
-                // Delete staging folder
+                // Staging folder: ALWAYS delete (temp merge area, not useful to keep)
                 try
                 {
                     if (Directory.Exists(stagingDir))
@@ -441,18 +442,22 @@ public class BurnService
                 }
                 catch (Exception ex) { Log($"Staging cleanup warning: {ex.Message}"); }
 
-                // Delete original study folders (files already moved to staging, may be empty or have leftovers)
-                foreach (var study in studies)
+                // Original study folders: only delete when AutoDelete is ON
+                // When OFF, folders may be empty (files moved to staging) but study stays in UI
+                if (settings.AutoDeleteAfterBurn)
                 {
-                    try
+                    foreach (var study in studies)
                     {
-                        if (Directory.Exists(study.StoragePath))
+                        try
                         {
-                            Directory.Delete(study.StoragePath, true);
-                            Log($"Cleaned up: {study.StoragePath}");
+                            if (Directory.Exists(study.StoragePath))
+                            {
+                                Directory.Delete(study.StoragePath, true);
+                                Log($"Cleaned up: {study.StoragePath}");
+                            }
                         }
+                        catch (Exception ex) { Log($"Cleanup warning: {ex.Message}"); }
                     }
-                    catch (Exception ex) { Log($"Cleanup warning: {ex.Message}"); }
                 }
             }
         }
