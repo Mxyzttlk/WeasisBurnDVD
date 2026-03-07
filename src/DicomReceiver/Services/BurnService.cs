@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Threading.Tasks;
 using DicomReceiver.Helpers;
 using DicomReceiver.Models;
@@ -86,10 +87,21 @@ public class BurnService
             format.Recorder = recorder;
             format.ClientName = "WeasisBurn";
 
-            bool mediaReady = format.CurrentMediaStatus != null &&
-                              (int)format.CurrentMediaStatus != 0;
+            // IMAPI2 CurrentMediaStatus is a bitmask (IMAPI_FORMAT2_DATA_MEDIA_STATE):
+            //   0 = UNKNOWN (no disc / not readable)
+            //   1 = OVERWRITE_ONLY         (DVD+RW, BD-RE — writable)
+            //   2 = RANDOMLY_WRITABLE      (blank disc — what we want)
+            //   4 = APPENDABLE             (multi-session, has data)
+            //   32768 = NON_EMPTY_SESSION  (already burned, not blank)
+            //   16384 = ERASE_REQUIRED     (needs erase before use)
+            // We want: blank (2) OR overwrite-ready (1) — reject non-blank media
+            // Bits 4 (APPENDABLE) and 32768 (NON_EMPTY_SESSION) indicate non-blank disc
+            int mediaState = (int)format.CurrentMediaStatus;
+            bool isBlankOrWritable = mediaState != 0
+                && (mediaState & 32768) == 0  // NOT non-empty session
+                && (mediaState & 16384) == 0; // NOT erase-required (needs format first)
 
-            return (mediaReady, driveName);
+            return (isBlankOrWritable, driveName);
         }
         catch
         {
@@ -112,7 +124,8 @@ public class BurnService
     /// </summary>
     public async Task BurnStudyAsync(ReceivedStudy study, AppSettings settings)
     {
-        if (study.Status != StudyStatus.Complete)
+        // Accept both Complete (direct call) and Burning (after WaitForDisc pre-check)
+        if (study.Status != StudyStatus.Complete && study.Status != StudyStatus.Burning)
             throw new InvalidOperationException("Study is not complete");
 
         study.Status = StudyStatus.Burning;
@@ -172,6 +185,11 @@ public class BurnService
             var prepResult = await Task.Run(() => RestructureInPlace(study.StoragePath, projectRoot));
 
             Log($"Moved {prepResult.FilesCopied} files in {prepResult.SeriesCount} series to DIR000/");
+
+            // Save study metadata BEFORE privacy mode modifies DICOM tags.
+            // If burn fails and app restarts, ScanIncomingFolder() can recover
+            // PatientName/StudyDate from study-info.json (DICOM tags may be gone).
+            SaveStudyInfo(study);
 
             // Apply privacy mode (Anonymize / HideAll) BEFORE DICOMDIR generation
             // Per-study: each study has its own PrivacyMode toggle
@@ -303,7 +321,8 @@ public class BurnService
         {
             foreach (var study in studies)
             {
-                if (study.Status != StudyStatus.Complete)
+                // Accept both Complete (direct call) and Burning (after WaitForDisc pre-check)
+                if (study.Status != StudyStatus.Complete && study.Status != StudyStatus.Burning)
                     throw new InvalidOperationException($"Study {study.PatientName} is not complete");
 
                 study.Status = StudyStatus.Burning;
@@ -394,6 +413,10 @@ public class BurnService
             });
 
             Log($"Total merged: {totalMoved} files in {totalSeries} series to DIR000/");
+
+            // Save study metadata BEFORE privacy mode modifies DICOM tags.
+            foreach (var study in studies)
+                SaveStudyInfo(study);
 
             // Apply privacy mode per-study — each study has its own PrivacyMode toggle
             // Process only the series directories belonging to each study (by series range)
@@ -1116,5 +1139,46 @@ public class BurnService
         }
 
         return processed;
+    }
+
+    // ================================================================
+    // Study metadata persistence — saved BEFORE privacy mode is applied
+    // so that PatientName/StudyDate can be recovered on app restart
+    // even if HideAll removed all demographic tags from DICOM files.
+    // ================================================================
+
+    private static readonly JsonSerializerOptions StudyInfoJsonOptions = new()
+    {
+        WriteIndented = true
+    };
+
+    /// <summary>
+    /// Saves study metadata to study-info.json in the study directory.
+    /// Called BEFORE ApplyPrivacyMode() to preserve PatientName, StudyDate, etc.
+    /// On app restart, ScanIncomingFolder() reads this file first (before DICOM headers).
+    /// </summary>
+    private void SaveStudyInfo(ReceivedStudy study)
+    {
+        try
+        {
+            var info = new Dictionary<string, string>
+            {
+                ["PatientName"] = study.PatientName,
+                ["PatientId"] = study.PatientId,
+                ["StudyDate"] = study.StudyDate,
+                ["Modality"] = study.Modality,
+                ["StudyInstanceUid"] = study.StudyInstanceUid,
+                ["ImageCount"] = study.ImageCount.ToString(),
+                ["SeriesCount"] = study.SeriesCount.ToString()
+            };
+
+            var jsonPath = Path.Combine(study.StoragePath, "study-info.json");
+            var json = JsonSerializer.Serialize(info, StudyInfoJsonOptions);
+            File.WriteAllText(jsonPath, json);
+        }
+        catch (Exception ex)
+        {
+            Log($"Warning: Could not save study-info.json: {ex.Message}");
+        }
     }
 }

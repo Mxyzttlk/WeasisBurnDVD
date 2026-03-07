@@ -650,12 +650,16 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     }
 
     /// <summary>
-    /// Scans the incoming folder for new study directories when in service mode.
-    /// The Windows Service saves files to incoming/{StudyUID}/{SeriesUID}/{SOP}.dcm.
-    /// Each new subdirectory = a new study.
+    /// Scans the incoming folder for study directories on startup and in service mode.
+    /// Handles TWO directory layouts:
+    ///   1. Original: incoming/{StudyUID}/{SeriesUID}/{SOP}.dcm (from DicomScpService)
+    ///   2. DIR000:   incoming/{StudyUID}/DIR000/00000000/00000000.DCM (after RestructureInPlace)
+    ///
+    /// Metadata priority:
+    ///   1. study-info.json (saved by BurnService before privacy mode — survives HideAll)
+    ///   2. DICOM file headers (may have PatientName removed by HideAll)
+    ///
     /// OPTIMIZATION: reads only ONE DICOM header per series (not per file).
-    /// All files in a series have the same SeriesInstanceUID + Modality.
-    /// For 500 images across 5 series: 5 DicomFile.Open() instead of 500.
     /// Runs every 1 second from DispatcherTimer — exits fast if no new directories found.
     /// </summary>
     private void ScanIncomingFolder()
@@ -670,7 +674,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
                 // Skip already-known studies
                 if (_knownStudyDirs.Contains(studyDir.Name)) continue;
 
-                // Find any .dcm file to extract study-level metadata
+                // Find any .dcm file to confirm this is a study folder
                 var firstDcmFile = studyDir.EnumerateFiles("*.dcm", SearchOption.AllDirectories).FirstOrDefault();
                 if (firstDcmFile == null) continue; // Empty directory, skip for now
 
@@ -678,89 +682,201 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
                 try
                 {
-                    var dicom = DicomFile.Open(firstDcmFile.FullName, FileReadOption.SkipLargeTags);
-                    var ds = dicom.Dataset;
+                    // ============================================================
+                    // Step 1: Get study-level metadata
+                    // Priority: study-info.json > DICOM header
+                    // study-info.json is saved by BurnService BEFORE privacy mode
+                    // so it preserves PatientName even after HideAll removes tags.
+                    // ============================================================
+                    string studyUid = studyDir.Name;
+                    string patientName = "Unknown";
+                    string patientId = "";
+                    string studyDate = "";
+                    string defaultModality = "OT";
 
-                    var studyUid = ds.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, studyDir.Name);
-                    var patientName = ds.GetSingleValueOrDefault(DicomTag.PatientName, "Unknown");
-                    var patientId = ds.GetSingleValueOrDefault(DicomTag.PatientID, "");
-                    var studyDate = ds.GetSingleValueOrDefault(DicomTag.StudyDate, "");
+                    var studyInfoPath = Path.Combine(studyDir.FullName, "study-info.json");
+                    if (File.Exists(studyInfoPath))
+                    {
+                        try
+                        {
+                            var json = File.ReadAllText(studyInfoPath);
+                            var info = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                            if (info != null)
+                            {
+                                if (info.TryGetValue("PatientName", out var pn) && !string.IsNullOrEmpty(pn))
+                                    patientName = pn;
+                                if (info.TryGetValue("PatientId", out var pid))
+                                    patientId = pid;
+                                if (info.TryGetValue("StudyDate", out var sd))
+                                    studyDate = sd;
+                                if (info.TryGetValue("Modality", out var mod) && !string.IsNullOrEmpty(mod))
+                                    defaultModality = mod;
+                                if (info.TryGetValue("StudyInstanceUid", out var uid) && !string.IsNullOrEmpty(uid))
+                                    studyUid = uid;
+                            }
+                        }
+                        catch { /* Fall through to DICOM header */ }
+                    }
+
+                    // Fallback: read from DICOM header (may be missing after HideAll)
+                    if (patientName == "Unknown")
+                    {
+                        try
+                        {
+                            var dicom = DicomFile.Open(firstDcmFile.FullName, FileReadOption.SkipLargeTags);
+                            var ds = dicom.Dataset;
+                            studyUid = ds.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, studyDir.Name);
+                            var dcmPatient = ds.GetSingleValueOrDefault(DicomTag.PatientName, "");
+                            if (!string.IsNullOrEmpty(dcmPatient))
+                                patientName = dcmPatient;
+                            patientId = ds.GetSingleValueOrDefault(DicomTag.PatientID, patientId);
+                            studyDate = ds.GetSingleValueOrDefault(DicomTag.StudyDate, studyDate);
+                            var dcmModality = ds.GetSingleValueOrDefault(DicomTag.Modality, "");
+                            if (!string.IsNullOrEmpty(dcmModality))
+                                defaultModality = dcmModality;
+                        }
+                        catch { /* Use whatever metadata we have */ }
+                    }
 
                     int totalFiles = 0;
 
-                    // Process per series directory — read ONE header per series
-                    // All files in a series share the same SeriesInstanceUID + Modality
-                    var seriesDirs = studyDir.GetDirectories();
-                    foreach (var seriesDir in seriesDirs)
+                    // ============================================================
+                    // Step 2: Detect directory layout and process series
+                    // DIR000 layout: study/DIR000/00000000/00000000.DCM
+                    // Original layout: study/{SeriesUID}/{SOP}.dcm
+                    // ============================================================
+                    var dir000 = new DirectoryInfo(Path.Combine(studyDir.FullName, "DIR000"));
+                    bool isDir000Layout = dir000.Exists;
+
+                    if (isDir000Layout)
                     {
-                        var seriesFiles = seriesDir.GetFiles("*.dcm", SearchOption.AllDirectories);
-                        if (seriesFiles.Length == 0) continue;
-
-                        // Read ONE file per series to get SeriesInstanceUID + Modality + Description
-                        var seriesUid = seriesDir.Name; // fallback: folder name
-                        var modality = "OT";
-                        var seriesDesc = "";
-                        try
+                        // DIR000 layout — each subdirectory of DIR000 is a series
+                        foreach (var seriesDir in dir000.GetDirectories())
                         {
-                            var seriesDicom = DicomFile.Open(seriesFiles[0].FullName, FileReadOption.SkipLargeTags);
-                            seriesUid = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, seriesUid);
-                            modality = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.Modality, "OT");
-                            seriesDesc = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, "");
-                        }
-                        catch { /* use folder name as series UID */ }
+                            var seriesFiles = seriesDir.GetFiles("*.dcm", SearchOption.AllDirectories);
+                            if (seriesFiles.Length == 0) continue;
 
-                        // Register all files in this series with the same metadata
-                        foreach (var f in seriesFiles)
-                        {
-                            _monitorService.OnFileReceived(new FileReceivedEventArgs
+                            var seriesUid = seriesDir.Name;
+                            var modality = defaultModality;
+                            var seriesDesc = "";
+                            try
                             {
-                                StudyInstanceUid = studyUid,
-                                PatientName = patientName,
-                                PatientId = patientId,
-                                StudyDate = studyDate,
-                                Modality = modality,
-                                SeriesInstanceUid = seriesUid,
-                                SeriesDescription = seriesDesc,
-                                FilePath = f.FullName,
-                                FileSize = f.Length
-                            });
-                            totalFiles++;
+                                var seriesDicom = DicomFile.Open(seriesFiles[0].FullName, FileReadOption.SkipLargeTags);
+                                seriesUid = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, seriesUid);
+                                modality = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.Modality, modality);
+                                seriesDesc = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, "");
+                            }
+                            catch { /* use folder name as series UID */ }
+
+                            foreach (var f in seriesFiles)
+                            {
+                                _monitorService.OnFileReceived(new FileReceivedEventArgs
+                                {
+                                    StudyInstanceUid = studyUid,
+                                    PatientName = patientName,
+                                    PatientId = patientId,
+                                    StudyDate = studyDate,
+                                    Modality = modality,
+                                    SeriesInstanceUid = seriesUid,
+                                    SeriesDescription = seriesDesc,
+                                    FilePath = f.FullName,
+                                    FileSize = f.Length
+                                });
+                                totalFiles++;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Original layout — each subdirectory is a series
+                        foreach (var seriesDir in studyDir.GetDirectories())
+                        {
+                            var seriesFiles = seriesDir.GetFiles("*.dcm", SearchOption.AllDirectories);
+                            if (seriesFiles.Length == 0) continue;
+
+                            var seriesUid = seriesDir.Name;
+                            var modality = defaultModality;
+                            var seriesDesc = "";
+                            try
+                            {
+                                var seriesDicom = DicomFile.Open(seriesFiles[0].FullName, FileReadOption.SkipLargeTags);
+                                seriesUid = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, seriesUid);
+                                modality = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.Modality, modality);
+                                seriesDesc = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, "");
+                            }
+                            catch { /* use folder name as series UID */ }
+
+                            foreach (var f in seriesFiles)
+                            {
+                                _monitorService.OnFileReceived(new FileReceivedEventArgs
+                                {
+                                    StudyInstanceUid = studyUid,
+                                    PatientName = patientName,
+                                    PatientId = patientId,
+                                    StudyDate = studyDate,
+                                    Modality = modality,
+                                    SeriesInstanceUid = seriesUid,
+                                    SeriesDescription = seriesDesc,
+                                    FilePath = f.FullName,
+                                    FileSize = f.Length
+                                });
+                                totalFiles++;
+                            }
+                        }
+
+                        // Handle .dcm files directly in study root (no series subdirectory)
+                        var rootFiles = studyDir.GetFiles("*.dcm", SearchOption.TopDirectoryOnly);
+                        if (rootFiles.Length > 0)
+                        {
+                            string rootSeriesUid = "ROOT";
+                            var rootModality = defaultModality;
+                            var rootSeriesDesc = "";
+                            try
+                            {
+                                var rootDicom = DicomFile.Open(rootFiles[0].FullName, FileReadOption.SkipLargeTags);
+                                rootSeriesUid = rootDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, rootSeriesUid);
+                                rootModality = rootDicom.Dataset.GetSingleValueOrDefault(DicomTag.Modality, rootModality);
+                                rootSeriesDesc = rootDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, "");
+                            }
+                            catch { }
+
+                            foreach (var f in rootFiles)
+                            {
+                                _monitorService.OnFileReceived(new FileReceivedEventArgs
+                                {
+                                    StudyInstanceUid = studyUid,
+                                    PatientName = patientName,
+                                    PatientId = patientId,
+                                    StudyDate = studyDate,
+                                    Modality = rootModality,
+                                    SeriesInstanceUid = rootSeriesUid,
+                                    SeriesDescription = rootSeriesDesc,
+                                    FilePath = f.FullName,
+                                    FileSize = f.Length
+                                });
+                                totalFiles++;
+                            }
                         }
                     }
 
-                    // Handle .dcm files directly in study root (no series subdirectory)
-                    var rootFiles = studyDir.GetFiles("*.dcm", SearchOption.TopDirectoryOnly);
-                    if (rootFiles.Length > 0)
-                    {
-                        var rootSeriesUid = ds.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, "ROOT");
-                        var rootModality = ds.GetSingleValueOrDefault(DicomTag.Modality, "OT");
-                        var rootSeriesDesc = ds.GetSingleValueOrDefault(DicomTag.SeriesDescription, "");
-
-                        foreach (var f in rootFiles)
-                        {
-                            _monitorService.OnFileReceived(new FileReceivedEventArgs
-                            {
-                                StudyInstanceUid = studyUid,
-                                PatientName = patientName,
-                                PatientId = patientId,
-                                StudyDate = studyDate,
-                                Modality = rootModality,
-                                SeriesInstanceUid = rootSeriesUid,
-                                SeriesDescription = rootSeriesDesc,
-                                FilePath = f.FullName,
-                                FileSize = f.Length
-                            });
-                            totalFiles++;
-                        }
-                    }
-
-                    // Add study to UI collection
+                    // ============================================================
+                    // Step 3: Fix StoragePath — must point to study root, not DIR000
+                    // StudyMonitorService.OnFileReceived() computes StoragePath by
+                    // going up 2 levels from FilePath. For DIR000 layout, this
+                    // results in study/DIR000 instead of study/. Fix it here.
+                    // ============================================================
                     var study = _monitorService.Studies
                         .FirstOrDefault(st => st.StudyInstanceUid == studyUid);
-                    if (study != null && !Studies.Contains(study))
-                        Studies.Insert(0, study);
+                    if (study != null)
+                    {
+                        // Always set StoragePath to the study root directory
+                        study.StoragePath = studyDir.FullName;
 
-                    AddLog($"Service study detected: {patientName} — {totalFiles} images");
+                        if (!Studies.Contains(study))
+                            Studies.Insert(0, study);
+                    }
+
+                    AddLog($"Study detected: {patientName} — {totalFiles} images");
                 }
                 catch (Exception ex)
                 {

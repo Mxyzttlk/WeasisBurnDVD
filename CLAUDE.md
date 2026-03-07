@@ -1222,6 +1222,151 @@ dotnet build src/DicomReceiverService -c Release
 ```
 În producție: installer-ul (MSI/Inno Setup) va instala serviciul automat.
 
+### SESSION 2026-03-07 (session 4 — bug fixes: AutoPurge, ScanIncomingFolder, AutoDelete, burn-gui exit code):
+
+#### Bug 1 FIX: AutoPurge nu ștergea studii Complete
+- **Simptom**: studiile Complete se acumulau, nu erau purged când `MaxStudiesKeep` era depășit
+- **Root cause**: `AutoPurgeOldStudies()` căuta doar studii Done/Error, ignora Complete
+- **Fix**: adăugat Priority 2 — dacă nu există Done/Error de purged, purgează cel mai vechi Complete
+- NEVER purgează Receiving sau Burning
+
+#### Bug 2 FIX: Studiile din sesiuni anterioare nu apăreau la restart
+- **Simptom**: la repornirea aplicației, studiile primite anterior nu apăreau în DataGrid
+- **Root cause**: `ScanIncomingFolder()` era apelat doar din timer în service mode, dar NU la startup
+- **Fix**: adăugat apel `ScanIncomingFolder()` direct în constructor (linia 194)
+- În service mode, timer-ul face prima scanare la 1 sec — prea târziu
+- În non-service mode, timer-ul NU apela ScanIncomingFolder deloc
+
+#### Bug 3 FIX: AutoDelete ștergea fișierele și la eroare de burn
+- **Simptom**: dacă burn-ul eșua, fișierele DICOM erau șterse oricum
+- **Root cause**: BurnStudyAsync seta `StudyStatus.Error` în catch, dar cleanup-ul după catch verifica doar `AutoDeleteAfterBurn` flag, nu și statusul
+- **Fix**: cleanup verifică `study.Status == StudyStatus.Done` înainte de ștergere
+- La eroare → studiu rămâne Complete (nu Error) pentru retry
+- Fișierele rămân pe disc pentru re-burn
+
+#### Bug 4 FIX: burn-gui.ps1 returna mereu exit 0
+- **Simptom**: BurnService vedea exitCode 0 chiar când burn-ul eșua
+- **Root cause**: burn-gui.ps1 termina cu `exit 0` necondiționat
+- **Fix**: verificare `$sync.Failed` / `$sync.Success` înainte de exit:
+  ```powershell
+  if ($sync.Failed -or -not $sync.Success) { exit 1 }
+  exit 0
+  ```
+
+#### Fișiere modificate:
+- `ViewModels/MainViewModel.cs` — AutoPurge Priority 2, ScanIncomingFolder la startup
+- `Services/BurnService.cs` — cleanup doar la Done, nu la Error
+- `scripts/burn-gui.ps1` — exit code corect
+
+### SESSION 2026-03-07 (session 5 — pre-burn disc check cu IMAPI2 polling):
+
+#### Funcționalitate: WaitForDisc — verificare disc înainte de burn
+Când utilizatorul apasă Burn, se verifică dacă un disc blank e inserat. Dacă nu, polling 30 sec cu countdown.
+
+**Flux UX:**
+```
+User clicks Burn
+    ↓
+study.StatusText = "Așteptare disc..." (status = Burning)
+    ↓
+Poll IMAPI2 la fiecare 2 sec (max 30 sec = 15 checks)
+    ├── Disc detectat → auto-proceed la burn
+    └── Timeout 30s → StatusText = "Disc negăsit (F:)"
+        → studiu revine la Complete, user apasă Burn = retry
+```
+
+#### Implementare:
+- **BurnService.cs** — `CheckDiscReady(AppSettings)`: creează COM objects IMAPI2 per apel, verifică `CurrentMediaStatus`, release în `finally`
+- **MainViewModel.cs** — `WaitForDisc(ReceivedStudy)`: async loop cu `Task.Delay(2000)`, countdown în StatusText
+- **LocalizationHelper.cs** — chei noi: WaitingForDisc, DiscNotFound, DiscDetected (RO/RU/EN)
+
+#### Fișiere modificate:
+- `Services/BurnService.cs` — metodă nouă `CheckDiscReady()`
+- `ViewModels/MainViewModel.cs` — metodă nouă `WaitForDisc()`, apelată din BurnStudy/BurnSelected
+- `Helpers/LocalizationHelper.cs` — 3 chei noi × 3 limbi
+
+### SESSION 2026-03-07 (session 6 — fix "Unknown" patient names + study-info.json):
+
+#### Problema: Studiile apăreau cu "Unknown" după restart
+- **Simptom**: după repornirea aplicației, unele studii arătau "Unknown" în loc de PatientName
+- **Root cause**: HideAll privacy mode eliminase permanent tag-urile PatientName din fișierele DICOM pe disc
+- **Confirmat**: analiza binară a fișierelor — tag-ul (0010,0010) PatientName absent complet din toate fișierele
+- **Context**: burn anterior cu HideAll → modificare in-place → burn eșuat → fișiere rămân cu tag-uri șterse → restart → ScanIncomingFolder citește DICOM → "Unknown"
+
+#### Fix: study-info.json — metadata persistentă
+- **SaveStudyInfo()**: salvează PatientName, PatientId, StudyDate, Modality, StudyInstanceUid, ImageCount, SeriesCount în `study-info.json`
+- Apelat ÎNAINTE de `ApplyPrivacyMode()` — tag-urile sunt încă intacte
+- **ScanIncomingFolder()**: citește `study-info.json` FIRST (prioritate), fallback la DICOM headers
+
+#### ScanIncomingFolder() — rescris complet
+Gestionează DOUĂ layout-uri de directoare:
+1. **Original**: `incoming/{StudyUID}/{SeriesUID}/{SOP}.dcm` (din DicomScpService)
+2. **DIR000**: `incoming/{StudyUID}/DIR000/00000000/00000000.DCM` (după RestructureInPlace)
+
+**Metadata priority**:
+1. `study-info.json` (salvat de BurnService înainte de privacy) — supraviețuiește HideAll
+2. DICOM file headers (poate avea PatientName eliminat de HideAll)
+
+**StoragePath fix**: StudyMonitorService.OnFileReceived() calculează StoragePath urcând 2 nivele de la FilePath — greșit pentru DIR000 layout (dă `study/DIR000` în loc de `study/`). ScanIncomingFolder suprascrie cu calea corectă.
+
+#### Fișiere modificate:
+- `Services/BurnService.cs` — `SaveStudyInfo()` nouă, apelată la linia 183 (single) și 407-409 (multi)
+- `ViewModels/MainViewModel.cs` — `ScanIncomingFolder()` rescris complet (~230 linii)
+
+### SESSION 2026-03-07 (session 7 — cod audit complet + fix-uri critice):
+
+#### Audit complet: bugs, performanță, memory leaks, resource cleanup
+
+**🔴 BUG CRITIC #1 REZOLVAT: WaitForDisc bloca burn-ul**
+- `WaitForDisc()` seta `study.Status = Burning` → `BurnStudyAsync()` verifica `!= Complete` → excepție!
+- Burn-ul nu putea porni NICIODATĂ după implementarea WaitForDisc
+- Aceeași problemă în `BurnMultipleStudiesAsync()` — prima investigație din listă avea status Burning
+- **Fix**: Guard-ul din `BurnStudyAsync` și `BurnMultipleStudiesAsync` acceptă acum atât `Complete` cât și `Burning`:
+  ```csharp
+  if (study.Status != StudyStatus.Complete && study.Status != StudyStatus.Burning)
+      throw new InvalidOperationException("Study is not complete");
+  ```
+
+**🔴 BUG MEDIU #2 REZOLVAT: CheckDiscReady detecta orice disc, nu doar blank**
+- `(int)CurrentMediaStatus != 0` returna `true` și pentru discuri deja arse (non-blank)
+- Utilizatorul vedea "Disc detectat" → burn pornea → burn-gui.ps1 eșua pe disc non-blank
+- **Fix**: Verifică flag-urile IMAPI2 corect:
+  ```csharp
+  int mediaState = (int)format.CurrentMediaStatus;
+  bool isBlankOrWritable = mediaState != 0
+      && (mediaState & 32768) == 0  // NOT non-empty session
+      && (mediaState & 16384) == 0; // NOT erase-required
+  ```
+  - Respinge discuri cu `NON_EMPTY_SESSION` (32768) și `ERASE_REQUIRED` (16384)
+  - Acceptă `RANDOMLY_WRITABLE` (2 = blank) și `OVERWRITE_ONLY` (1 = DVD+RW)
+
+#### Verificat CORECT (fără probleme):
+| Componentă | Verificare | Status |
+|---|---|---|
+| COM cleanup (CheckDiscReady) | `Marshal.ReleaseComObject()` în `finally` | ✅ |
+| COM cleanup (SettingsDialog) | Release pe toate obiectele COM | ✅ |
+| DicomScpService static fields | Cleared la `Stop()` | ✅ |
+| StudyMonitorService HashSets | `TrackingCleaned` flag + cleanup la Done/Error | ✅ |
+| ConcurrentDictionary locking | `lock(images)` pe HashSet-uri partajate | ✅ |
+| BeginInvoke (nu Invoke) | fo-dicom thread nu blochează UI | ✅ |
+| ScanIncomingFolder dedup | `_knownStudyDirs` HashSet | ✅ |
+| SaveStudyInfo timing | ÎNAINTE de privacy mode | ✅ |
+| RestoreFilesFromStaging | Restaurare la multi-burn failure | ✅ |
+| AutoDelete safety | Nu șterge dacă burn eșuat | ✅ |
+| DispatcherTimer lifecycle | Start/Stop corect | ✅ |
+| Privacy mode cu ReadAll | Închide file handle înainte de Save | ✅ |
+| Event handlers lifetime | Aceeași durată cu app-ul | ✅ |
+
+#### Probleme minore (acceptabile, nu necesită fix):
+- `AddLog` → `RemoveAt(0)` e O(n) la 500 entries — o dată pe mesaj
+- Process burn nu capturează stdout/stderr — funcțional OK, doar exit code
+- `_knownStudyDirs` crește dacă foldere șterse extern — string-uri, neglijabil
+- Timer iterează Studies de 4 ori/sec — trivial pentru 5-20 studii
+- `Shutdown()` nu anulează burn-uri în curs — burn.ps1 continuă independent
+
+#### Fișiere modificate:
+- `Services/BurnService.cs` — fix guard BurnStudyAsync + BurnMultipleStudiesAsync + fix CheckDiscReady media state
+
 ### Module neimplementate încă
 1. **PACS Web module** — WebView2 browser (port din pacs-burner.ps1) — LIPSEȘTE
 2. **IMAPI2 burn nativ C#** — burn direct din C# fără PowerShell — LIPSEȘTE (acum delegă la burn.ps1)
