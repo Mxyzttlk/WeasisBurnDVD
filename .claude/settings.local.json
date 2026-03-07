@@ -93,7 +93,19 @@
       "Bash(dotnet new console --force)",
       "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj)",
       "Bash(dotnet build src/DicomReceiver/DicomReceiver.sln)",
-      "Bash(dotnet build --verbosity quiet)"
+      "Bash(dotnet build --verbosity quiet)",
+      "Bash(xargs grep -l \"multi\\\\|batch\\\\|queue\")",
+      "Bash(tasklist /FI \"IMAGENAME eq DicomReceiver.exe\")",
+      "Bash(findstr /I \"DicomReceiver\")",
+      "Bash(tasklist)",
+      "Bash(cmd /c \"tasklist | findstr DicomReceiver\")",
+      "Bash(dotnet build)",
+      "Bash(taskkill /IM DicomReceiver.exe /F)",
+      "Bash(dotnet build --nologo -v q)",
+      "Bash(taskkill /PID 20060 /F)",
+      "Bash(git rm -r --cached \"src/DicomReceiverService/bin/\" \"src/DicomReceiverService/obj/\")",
+      "Bash(git rm --cached nul)",
+      "Bash(git add .gitignore src/DicomReceiver/App.xaml src/DicomReceiver/Helpers/LocalizationHelper.cs src/DicomReceiver/MainWindow.xaml src/DicomReceiver/MainWindow.xaml.cs src/DicomReceiver/Models/AppSettings.cs src/DicomReceiver/Models/ReceivedStudy.cs src/DicomReceiver/Services/BurnService.cs src/DicomReceiver/Services/DicomScpService.cs src/DicomReceiver/ViewModels/MainViewModel.cs)"
     ]
   }
 }
