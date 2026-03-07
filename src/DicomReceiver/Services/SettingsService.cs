@@ -53,7 +53,25 @@ public class SettingsService
         Directory.CreateDirectory(SettingsDir);
         var json = JsonSerializer.Serialize(settings, JsonOptions);
         File.WriteAllText(SettingsFile, json);
+
+        // Also write to ProgramData for the Windows Service to read
+        try
+        {
+            Directory.CreateDirectory(SharedSettingsDir);
+            File.WriteAllText(SharedSettingsFile, json);
+        }
+        catch
+        {
+            // ProgramData write may fail without admin rights — non-critical
+        }
     }
+
+    // Shared location accessible by Windows Service (LocalSystem account)
+    private static readonly string SharedSettingsDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "WeasisBurn");
+
+    private static readonly string SharedSettingsFile = Path.Combine(SharedSettingsDir, "dicom-receiver-settings.json");
 
     private string GetDefaultIncomingFolder()
     {

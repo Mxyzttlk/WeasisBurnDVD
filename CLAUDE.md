@@ -881,31 +881,236 @@ Câștig: elimină timpul de descărcare (~30-120 sec) pentru fiecare disc după
 - **Erori în pipeline**: disc defect (retry?), ZIP corupt (skip?), writer blocat (toate așteaptă)
 - **Identificare ZIP→Pacient**: GUI trebuie să afișeze coadă cu nume + studiu, permită reordonare
 
-## Future: Aplicație C# .NET 8 (înlocuiește PowerShell)
+## Aplicație C# .NET 8 — DicomReceiver (IMPLEMENTAT)
 
-### Decizie
-Întreaga aplicație (PACS Burner + DICOM Receive + Burn) va fi rescrisă în **C# .NET 8**.
-PowerShell-ul actual rămâne funcțional, C# va fi dezvoltat în paralel.
+### Locație
+`src/DicomReceiver/` — proiect complet, compilabil, WPF desktop app.
 
-### De ce C#:
-- **IMAPI2 COM** — interop nativ, fără wrappere
-- **fo-dicom** — librărie completă: C-STORE SCP, parsare DICOM, DICOMDIR generation (înlocuiește dcmtk)
-- **WPF + WebView2** — GUI nativ, fără problemele PowerShell (BOM, $args, closure scoping)
+### De ce C# (vs PowerShell):
+- **fo-dicom** — C-STORE SCP nativ, parsare DICOM, DICOMDIR generation (înlocuiește dcmtk + storescp.exe)
+- **WPF** — GUI nativ, fără problemele PowerShell (BOM, `$args`, closure scoping)
+- **CommunityToolkit.Mvvm** — `[ObservableProperty]` source generators, MVVM curat
 - **Single exe** — `dotnet publish --self-contained -p:PublishSingleFile=true` (~30-50 MB, zero dependențe)
-- **Portare ușoară** — codul PowerShell e deja ~80% C# ca logică
-- **.NET 8 LTS** — performanță excelentă, AOT compilation disponibil
 
-### Componente principale:
-1. **PACS Web module** — WebView2 browser (port din pacs-burner.ps1)
-2. **DICOM Receive module** — fo-dicom C-STORE SCP (înlocuiește storescp.exe)
-3. **Burn module** — IMAPI2 COM (port din burn.ps1/burn-gui.ps1)
-4. **Queue module** — coadă vizuală de studii (din ambele surse)
-5. **Disc templates** — start-weasis.bat, splash-loader.ps1, autorun.inf (rămân ca fișiere copiate pe disc)
+### Structura proiectului
 
-### NuGet packages necesare:
-- `fo-dicom` — DICOM network + parsing + DICOMDIR
-- `Microsoft.Web.WebView2` — browser embedded
-- `System.Drawing.Common` — icon extraction (dacă e nevoie)
+```
+src/DicomReceiver/
+├── DicomReceiver.csproj          ← .NET 8.0-windows, WPF+WinForms, Nullable enable
+├── DicomReceiver.sln
+├── App.xaml                       ← Dark theme (#1E1E1E), resurse globale, stiluri Button/ComboBox
+├── App.xaml.cs
+├── MainWindow.xaml                ← Toolbar + DataGrid studii + Log ListBox + StatusBar
+├── MainWindow.xaml.cs             ← Localizare coloane, auto-scroll log, Window_Closing → Shutdown()
+├── Helpers/
+│   ├── LocalizationHelper.cs      ← RO/RU/EN (60+ chei), auto-detect din CultureInfo
+│   ├── RelayCommand.cs            ← ICommand wrapper (Action<object?> + Func<object?,bool>)
+│   └── StudyStatusToBoolConverter.cs ← Burn button enabled doar la StudyStatus.Complete
+├── Models/
+│   ├── ReceivedStudy.cs           ← [ObservableProperty] MVVM model, StudyStatus enum
+│   └── AppSettings.cs             ← POCO: AeTitle, Port, IncomingFolder, BurnSpeed, etc.
+├── Services/
+│   ├── DicomScpService.cs         ← fo-dicom C-STORE SCP server + CStoreScp handler
+│   ├── StudyMonitorService.cs     ← Lifecycle Receiving→Complete→Burning→Done/Error
+│   ├── BurnService.cs             ← DICOMDIR fo-dicom + apel burn.ps1/burn-gui.ps1
+│   └── SettingsService.cs         ← JSON %APPDATA%\WeasisBurn\dicom-receiver-settings.json
+├── ViewModels/
+│   └── MainViewModel.cs           ← ObservableObject, comenzi, DispatcherTimer 1s, auto-start SCP
+├── Views/
+│   ├── SettingsDialog.xaml        ← AE Title, Port, Drive IMAPI2, Limba, BurnSpeed
+│   └── SettingsDialog.xaml.cs     ← IMAPI2 COM drive enumeration, validare, FolderBrowserDialog
+└── Resources/
+    └── weasis.ico
+```
+
+### NuGet packages
+
+| Package | Versiune | Rol |
+|---------|----------|-----|
+| **fo-dicom** | 5.1.3 | C-STORE SCP, DICOM parsing, DICOMDIR generation |
+| **CommunityToolkit.Mvvm** | 8.4.0 | `[ObservableProperty]`, `ObservableObject` |
+
+### Componente implementate
+
+#### 1. DicomScpService.cs — C-STORE SCP Server (185 linii)
+- `DicomServerFactory.Create<CStoreScp>(port)` — pornire server fo-dicom
+- `CStoreScp` extends `DicomService` + implements `IDicomCStoreProvider`, `IDicomCEchoProvider`
+- Transfer syntaxes acceptate: ExplicitVR LE/BE, ImplicitVR LE, JPEG Lossless/Baseline, JPEG2000, RLE
+- Salvare: `incoming/{StudyUID}/{SeriesUID}/{SOPUID}.dcm`
+- Static delegates (`OnFileReceived`, `OnLog`) — setat de service, accesat de handler
+- `FileReceivedEventArgs`: StudyInstanceUid, PatientName, PatientId, StudyDate, Modality, SeriesInstanceUid, FilePath, FileSize
+
+#### 2. StudyMonitorService.cs — Study Lifecycle (275 linii)
+- `ConcurrentDictionary<string, ReceivedStudy>` — thread-safe
+- `_seriesPerStudy`, `_imagesPerStudy` — `HashSet<string>` cu `lock()` pentru deduplicare SOPInstanceUID
+- **Timeout completion**: `CheckAndCompleteStudies()` — dacă nu primește fișiere `_timeoutSeconds` (default 30s) → `Complete`
+- **Re-send handling**: studiu Complete resetat la Receiving dacă primește fișiere noi
+- **Mixed modality**: acumulare `CT/MR` dacă serii cu modalități diferite
+- **Memory cleanup**: HashSet-uri eliberate pentru studii Done/Error
+- `RecalculateStudySize()` — re-enumerare de pe disc la completare (mai precis decât acumulare)
+- `ValidateStudyOnDisk()` — verificare fișiere DICOM exist înainte de burn (previne bug eFilm)
+- `FormatPatientName()`: `LastName^FirstName` → `LastName FirstName`
+- `FormatStudyDate()`: `YYYYMMDD` → `DD.MM.YYYY`
+
+#### 3. BurnService.cs — DVD Burn Integration (296 linii)
+- **Validare**: verifică fișiere DICOM exist pe disc, count match
+- **PrepareDicomFolder()**: normalizare structură DICOM + DICOMDIR fo-dicom
+  ```
+  prepared/
+  ├── DICOMDIR          ← fo-dicom DicomDirectory.Save()
+  └── IMAGES/
+      ├── 001/          ← serie (3 cifre)
+      │   ├── 00001.DCM ← imagine (5 cifre)
+      │   └── 00002.DCM
+      └── 002/
+  ```
+- `DicomDirectory.AddFile(dcmFile, @"IMAGES\001\00001.DCM")` — cale relativă corectă
+- **Apel burn.ps1**: `powershell.exe -ExecutionPolicy Bypass -File burn-gui.ps1 -DicomFolder "prepared/" -BurnSpeed 4 -DriveID "..."`
+- **Post-burn cleanup**: șterge prepared/ (temp) + incoming/ (dacă AutoDeleteAfterBurn=true)
+- **FindProjectRoot()**: walk up 5 levels de la exe, fallback `E:\Weasis Burn`
+
+#### 4. MainViewModel.cs — MVVM ViewModel (309 linii)
+- Extends `CommunityToolkit.Mvvm.ComponentModel.ObservableObject`
+- `ObservableCollection<ReceivedStudy> Studies` — DataGrid binding
+- `ObservableCollection<string> LogEntries` — Log ListBox binding
+- **DispatcherTimer 1s**: `CheckAndCompleteStudies()` + `UpdateElapsedTimes()` + `AutoPurgeOldStudies()`
+- **BeginInvoke** (async) pentru fo-dicom callbacks → nu blochează threadul DICOM network
+- **Auto-start SCP** la pornirea aplicației
+- **AutoPurgeOldStudies()**: max 1 purge/tick, doar Done/Error, păstrează active (Receiving/Complete/Burning)
+- **Log**: max 500 entries, format `[HH:mm:ss] message`
+- **Commands**: ToggleScp, OpenSettings, BurnStudy, DeleteStudy, DeleteAll, ClearLog
+
+#### 5. ReceivedStudy.cs — MVVM Model (65 linii)
+- `[ObservableProperty]` pe toate câmpurile → source-generated PropertyChanged
+- `[NotifyPropertyChangedFor(nameof(TotalSizeFormatted))]` pe `_totalSizeBytes`
+- `enum StudyStatus { Receiving, Complete, Burning, Done, Error }`
+- `TotalSizeFormatted` — computed property: B/KB/MB/GB
+
+#### 6. AppSettings.cs — Configuration (15 linii)
+```csharp
+AeTitle = "WEASIS_BURN"     // AE Title SCP
+Port = 4006                  // Port ascultare
+IncomingFolder = ""          // Default: {exe}/incoming
+StudyTimeoutSeconds = 30     // Timeout completare studiu
+BurnSpeed = 4                // Viteza ardere DVD
+Language = "auto"            // auto/ro/ru/en
+AutoDeleteAfterBurn = true   // Șterge DICOM după burn
+MaxStudiesKeep = 0           // 0 = nelimitat (auto-purge doar când AutoDelete=false)
+SelectedDriveId = ""         // IMAPI2 drive ID
+```
+Stocare: `%APPDATA%\WeasisBurn\dicom-receiver-settings.json`
+
+#### 7. SettingsDialog.xaml/.cs — Settings UI (300 linii)
+- IMAPI2 COM drive enumeration: `MsftDiscMaster2` → `MsftDiscRecorder2.InitializeDiscRecorder()`
+- VolumePathNames → drive letter, VendorId + ProductId → label
+- `Marshal.ReleaseComObject()` pe toate obiectele COM (cleanup corect)
+- Validare: AE Title non-empty, Port 1-65535, Timeout 5-300, MaxStudies >= 0
+- AutoDelete ON → MaxStudies disabled (mutual exclusion)
+- `FolderBrowserDialog` (WinForms) pentru incoming folder
+
+#### 8. LocalizationHelper.cs — Multilingual (194 linii)
+- 3 limbi: RO, RU, EN (60+ chei fiecare)
+- Auto-detect: `CultureInfo.CurrentCulture.TwoLetterISOLanguageName`
+- Fallback: EN dacă cheie lipsă
+- Chei UI: AppTitle, Start/Stop, Settings, Burn, Delete, PatientName, StudyDate, Modality, etc.
+- Chei status: ScpRunning/Stopped, Receiving/Complete/Burning/Done/Error
+- Chei dialog: ConfirmDelete, RestartRequired, NoDrives, etc.
+
+#### 9. App.xaml — Dark Theme Global (216 linii)
+- Culori: Background #1E1E1E, Surface #2D2D2D, Border #3E3E3E, Accent #0F9B58, Error #E53935
+- Stiluri: `DarkButton`, `AccentButton`, `DangerButton` — ControlTemplate cu CornerRadius, hover/pressed triggers
+- **ComboBox custom ControlTemplate** — rezolvă textul invizibil pe dark theme (bug PowerShell WPF cunoscut)
+- ComboBoxItem: hover (#3E3E3E), selected (#33FFFFFF)
+- Toate brush-urile ca StaticResource — frozen, zero alocare la runtime
+
+#### 10. MainWindow.xaml — Main UI (242 linii)
+- **Toolbar**: Start/Stop SCP (AccentButton), Settings (gear icon Segoe MDL2 Assets), Delete All
+- **DataGrid**: Auto-generated=false, IsReadOnly, SelectionMode=Single
+  - Coloane: Status (Ellipse color-coded), Patient, StudyDate, Modality, Series, Images, Size, StatusText
+  - Status culori: Orange=Receiving, Green=Complete, Blue=Burning, DarkGreen=Done, Red=Error
+  - Action buttons: Burn (AccentButton, enabled la Complete via converter), Delete X (red)
+- **Log Panel**: ListBox Consolas 11pt, auto-scroll via CollectionChanged
+- **Status Bar**: Ellipse (verde=running, roșu=stopped) + StatusText
+- GridSplitter între DataGrid și Log
+
+### Arhitectura threading
+
+```
+[fo-dicom network thread]
+    │ CStoreScp.OnCStoreRequestAsync()
+    │ → OnFileReceived?.Invoke()
+    │ → DicomScpService.FileReceived event
+    │
+    ▼ Dispatcher.BeginInvoke() ← ASYNC, nu blochează DICOM
+[UI thread (WPF Dispatcher)]
+    │ _monitorService.OnFileReceived()
+    │ Studies.Insert(0, study)
+    │
+    ├── DispatcherTimer (1 sec)
+    │   ├── CheckAndCompleteStudies() → timeout → StudyCompleted event
+    │   ├── UpdateElapsedTimes() → StatusText update
+    │   └── AutoPurgeOldStudies() → max 1 purge/tick
+    │
+    └── BurnStudy (async void)
+        └── Task.Run(() => PrepareDicomFolder()) → Process.Start(burn.ps1) → WaitForExitAsync()
+```
+
+**Key pattern**: `BeginInvoke` (nu `Invoke`) — fo-dicom thread nu așteaptă UI, bulk transfers rămân rapide.
+
+### Study lifecycle
+
+```
+Receiving ──(timeout 30s)──→ Complete ──(user click Burn)──→ Burning ──→ Done
+    ↑                            │                                        │
+    └──(re-send files)───────────┘                                   (AutoDelete)
+                                                                         │
+                                                              Error ←────┘
+```
+
+### Integrare cu PowerShell scripts
+- BurnService apelează `scripts/burn-gui.ps1` (sau `burn.ps1` fallback)
+- Parametru nou: `-DicomFolder "prepared/"` (nu ZIP, fișiere deja pe disc)
+- `-BurnSpeed 4` + `-DriveID "..."` opțional
+- burn.ps1 vede DICOMDIR la root → tratează ca PACS ZIP → junctions IMAGES/ pe disc
+
+### DICOMDIR Fix — SESSION 2026-03-07
+
+#### Problema: Siemens vede seriile dar import eșuează
+- **Simptom**: discul ars din DicomReceiver, DICOMDIR detectat de stația Siemens, seriile vizibile, dar eroare la import
+- **Root cause**: fo-dicom `DicomDirectory.AddFile()` crea PATIENT→STUDY→SERIES dar **ZERO IMAGE records**
+  - PACS DICOMDIR: 386 KB, 1581 records (cu IMAGE records + ReferencedFileID)
+  - fo-dicom DICOMDIR: 1.9 KB, 7 records (fără IMAGE records!)
+  - Toate SERIES aveau `OffsetOfReferencedLowerLevelDirectoryEntity = 0` (fără copii)
+  - `catch {}` silențios ascundea erorile din `AddFile()`
+- **Alte diferențe**: naming `IMAGES/001/00001.DCM` (3+5 cifre) vs PACS `DIR000/00000000/00000000.DCM` (8+8 cifre)
+
+#### Fix implementat în BurnService.cs:
+1. **Naming PACS-compatible**: `IMAGES/` → `DIR000/`, 3-digit → 8-digit, 5-digit → 8-digit, 0-based
+2. **Separare copy de DICOMDIR**: mai întâi copiază toate fișierele, apoi generează DICOMDIR separat
+3. **Error reporting**: `catch {}` → logging detaliat per fișier
+4. **Validare**: verifică nr IMAGE records după generare, alertă dacă = 0
+5. **Fallback dcmmkdir**: dacă fo-dicom generează 0 IMAGE records, folosește dcmmkdir din tools/dcmtk/
+   - Comandă: `dcmmkdir +r +id "outputDir" +D "DICOMDIR"` — căi relative corecte `DIR000\00000000\00000000.DCM`
+6. **PrepareResult**: return object cu FilesCopied, SeriesCount, ImageRecordsAdded, DicomdirSource, Errors
+
+#### Structura disc acum (identică cu PACS):
+```
+DVD-R/
+├── DICOMDIR              ← DIR000\00000000\00000000.DCM paths
+├── DIR000/
+│   ├── 00000000/         ← serie 0 (8 cifre)
+│   │   ├── 00000000.DCM  ← imagine 0 (8 cifre)
+│   │   └── 00000001.DCM
+│   └── 00000001/
+├── Weasis/
+└── ...
+```
+
+### Module neimplementate încă
+1. **PACS Web module** — WebView2 browser (port din pacs-burner.ps1) — LIPSEȘTE
+2. **IMAPI2 burn nativ C#** — burn direct din C# fără PowerShell — LIPSEȘTE (acum delegă la burn.ps1)
+3. **Pipeline paralel** — burn în background + descărcare simultană — LIPSEȘTE
+4. **Single exe publish** — neconfigurat
 
 ## Future: DICOM Receive (workflow Siemens/eFilm)
 

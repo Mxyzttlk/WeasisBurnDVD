@@ -81,7 +81,18 @@
       "Bash(grep -n \"^[[:space:]]*REM.*\\\\\\(Fisierul\\\\|Extrag\\\\|extras\\\\|Curatare\\\\|gasit\\\\|creat\\\\|Eroare\\\\|conectata\\\\|Discul\\\\|gol\\\\|Niciun\\\\|instalat\\\\|Fara drepturi\\\\|Introduceti\\\\|parola\\\\\\)\" \"E:/Weasis Burn\"/scripts/*.ps1 \"E:/Weasis Burn\"/scripts/*.bat \"E:/Weasis Burn\"/templates/*.bat)",
       "Bash(git checkout -b test)",
       "Bash(powershell.exe -Command \"Get-Content ''scripts/burn-gui.ps1'' -TotalCount 30\")",
-      "Bash(powershell.exe -Command \"& ''C:\\\\Program Files\\\\dotnet\\\\dotnet.exe'' build ''E:\\\\Weasis Burn\\\\src\\\\DicomReceiver\\\\DicomReceiver.csproj'' --verbosity quiet 2>&1\")"
+      "Bash(powershell.exe -Command \"& ''C:\\\\Program Files\\\\dotnet\\\\dotnet.exe'' build ''E:\\\\Weasis Burn\\\\src\\\\DicomReceiver\\\\DicomReceiver.csproj'' --verbosity quiet 2>&1\")",
+      "Bash(\"E:/Weasis Burn/tools/dcmtk/bin/dcmdump.exe\" \"E:/DICOMDIR\")",
+      "Bash(\"E:/Weasis Burn/tools/dcmtk/bin/dcmdump.exe\" \"E:/DICOMDIR \\(2\\)\")",
+      "Bash(dotnet build --nologo -v quiet)",
+      "Bash(dotnet build --nologo)",
+      "Bash(xargs grep -l \"FileReadOption\")",
+      "Bash(dotnet build --no-restore)",
+      "Bash(dotnet add package fo-dicom --version 5.1.3)",
+      "Bash(dotnet run)",
+      "Bash(dotnet new console --force)",
+      "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj)",
+      "Bash(dotnet build src/DicomReceiver/DicomReceiver.sln)"
     ]
   }
 }

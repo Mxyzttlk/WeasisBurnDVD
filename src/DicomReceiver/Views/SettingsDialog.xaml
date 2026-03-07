@@ -111,6 +111,8 @@
 
         <!-- Buttons -->
         <StackPanel Grid.Row="10" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="BtnRestartService" Content="Restart Service" Click="RestartService_Click"
+                    Style="{StaticResource DarkButton}" Width="130" Margin="0,0,8,0" />
             <Button x:Name="BtnCancel" Content="Cancel" Click="Cancel_Click"
                     Style="{StaticResource DarkButton}" Width="90" Margin="0,0,8,0" />
             <Button x:Name="BtnSave" Content="Save" Click="Save_Click"

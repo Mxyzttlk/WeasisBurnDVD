@@ -1,13 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.ServiceProcess;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
 using DicomReceiver.Helpers;
 using DicomReceiver.Models;
 using DicomReceiver.Services;
+using FellowOakDicom;
 
 namespace DicomReceiver.ViewModels;
 
@@ -21,6 +24,8 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     private readonly DispatcherTimer _uiTimer;
 
     private AppSettings _settings;
+    private bool _serviceMode; // true when Windows Service handles SCP
+    private readonly HashSet<string> _knownStudyDirs = new(); // for folder scan dedup
 
     public ObservableCollection<ReceivedStudy> Studies { get; } = new();
     public ObservableCollection<string> LogEntries { get; } = new();
@@ -41,7 +46,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     }
 
     public string StatusText => IsRunning
-        ? $"{L("ScpRunning")} — AE: {_settings.AeTitle} | {L("Port")}: {_settings.Port}"
+        ? (_serviceMode
+            ? $"SCP Service — AE: {_settings.AeTitle} | {L("Port")}: {_settings.Port}"
+            : $"{L("ScpRunning")} — AE: {_settings.AeTitle} | {L("Port")}: {_settings.Port}")
         : L("ScpStopped");
 
     public string StatusColor => IsRunning ? "#0F9B58" : "#E53935";
@@ -116,6 +123,8 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         };
         _uiTimer.Tick += (s, e) =>
         {
+            if (_serviceMode)
+                ScanIncomingFolder();
             _monitorService.CheckAndCompleteStudies();
             _monitorService.UpdateElapsedTimes();
             AutoPurgeOldStudies();
@@ -138,6 +147,17 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     {
         try
         {
+            // Check if Windows Service is already handling SCP
+            if (IsServiceRunning("DicomReceiverService"))
+            {
+                _serviceMode = true;
+                _monitorService.Start(_settings.StudyTimeoutSeconds);
+                IsRunning = true;
+                AddLog("SCP Service detected — using Windows Service for DICOM reception");
+                return;
+            }
+
+            _serviceMode = false;
             _scpService.Start(_settings.AeTitle, _settings.Port, _settings.IncomingFolder);
             _monitorService.Start(_settings.StudyTimeoutSeconds);
             IsRunning = true;
@@ -149,10 +169,26 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         }
     }
 
+    private static bool IsServiceRunning(string serviceName)
+    {
+        try
+        {
+            using var sc = new ServiceController(serviceName);
+            return sc.Status == ServiceControllerStatus.Running;
+        }
+        catch
+        {
+            // Service not installed or access denied
+            return false;
+        }
+    }
+
     private void StopScp()
     {
-        _scpService.Stop();
+        if (!_serviceMode)
+            _scpService.Stop();
         _monitorService.Stop();
+        _serviceMode = false;
         IsRunning = false;
     }
 
@@ -284,6 +320,86 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         Studies.Remove(oldest);
         _monitorService.RemoveStudy(oldest.StudyInstanceUid);
         AddLog($"Auto-purged: {oldest.PatientName}");
+    }
+
+    /// <summary>
+    /// Scans the incoming folder for new study directories when in service mode.
+    /// The Windows Service saves files to incoming/{StudyUID}/{SeriesUID}/{SOP}.dcm.
+    /// Each new subdirectory = a new study. Parses one .dcm file per study for metadata.
+    /// Runs every 1 second from DispatcherTimer — exits fast if no new directories found.
+    /// </summary>
+    private void ScanIncomingFolder()
+    {
+        if (!Directory.Exists(_settings.IncomingFolder)) return;
+
+        try
+        {
+            var incomingDir = new DirectoryInfo(_settings.IncomingFolder);
+            foreach (var studyDir in incomingDir.GetDirectories())
+            {
+                // Skip already-known studies
+                if (_knownStudyDirs.Contains(studyDir.Name)) continue;
+
+                // Find any .dcm file to extract metadata
+                var dcmFile = studyDir.EnumerateFiles("*.dcm", SearchOption.AllDirectories).FirstOrDefault();
+                if (dcmFile == null) continue; // Empty directory, skip for now
+
+                _knownStudyDirs.Add(studyDir.Name);
+
+                try
+                {
+                    var dicom = DicomFile.Open(dcmFile.FullName, FileReadOption.SkipLargeTags);
+                    var ds = dicom.Dataset;
+
+                    var args = new FileReceivedEventArgs
+                    {
+                        StudyInstanceUid = ds.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, studyDir.Name),
+                        PatientName = ds.GetSingleValueOrDefault(DicomTag.PatientName, "Unknown"),
+                        PatientId = ds.GetSingleValueOrDefault(DicomTag.PatientID, ""),
+                        StudyDate = ds.GetSingleValueOrDefault(DicomTag.StudyDate, ""),
+                        Modality = ds.GetSingleValueOrDefault(DicomTag.Modality, "OT"),
+                        SeriesInstanceUid = ds.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, ""),
+                        FilePath = dcmFile.FullName,
+                        FileSize = dcmFile.Length
+                    };
+
+                    _monitorService.OnFileReceived(args);
+
+                    // Count all files for accurate image count
+                    var allFiles = studyDir.EnumerateFiles("*.dcm", SearchOption.AllDirectories).ToList();
+                    foreach (var f in allFiles.Skip(1)) // Skip first, already processed
+                    {
+                        _monitorService.OnFileReceived(new FileReceivedEventArgs
+                        {
+                            StudyInstanceUid = args.StudyInstanceUid,
+                            PatientName = args.PatientName,
+                            PatientId = args.PatientId,
+                            StudyDate = args.StudyDate,
+                            Modality = args.Modality,
+                            SeriesInstanceUid = args.SeriesInstanceUid,
+                            FilePath = f.FullName,
+                            FileSize = f.Length
+                        });
+                    }
+
+                    // Add study to UI collection
+                    var study = _monitorService.Studies
+                        .FirstOrDefault(st => st.StudyInstanceUid == args.StudyInstanceUid);
+                    if (study != null && !Studies.Contains(study))
+                        Studies.Insert(0, study);
+
+                    AddLog($"Service study detected: {args.PatientName} — {allFiles.Count} images");
+                }
+                catch (Exception ex)
+                {
+                    AddLog($"Scan error ({studyDir.Name}): {ex.Message}");
+                }
+            }
+        }
+        catch
+        {
+            // Folder access error — skip this tick
+        }
     }
 
     private void AddLog(string message)

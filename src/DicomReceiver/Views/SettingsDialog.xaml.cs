@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.ServiceProcess;
 using System.Windows;
 using System.Windows.Controls;
 using DicomReceiver.Helpers;
@@ -86,6 +87,8 @@ public partial class SettingsDialog : Window
         BtnRefreshDrives.Content = "\u21BB";
         BtnSave.Content = L("Save");
         BtnCancel.Content = L("Cancel");
+        BtnRestartService.Content = L("RestartService");
+        UpdateServiceButtonState();
     }
 
     private void RefreshDrives()
@@ -289,6 +292,53 @@ public partial class SettingsDialog : Window
         TxtMaxStudies.IsEnabled = enabled;
         LblMaxStudies.Opacity = enabled ? 1.0 : 0.4;
         LblMaxStudiesHint.Opacity = enabled ? 1.0 : 0.4;
+    }
+
+    private void UpdateServiceButtonState()
+    {
+        try
+        {
+            using var sc = new ServiceController("DicomReceiverService");
+            // Service exists — enable button
+            BtnRestartService.IsEnabled = true;
+            BtnRestartService.Opacity = 1.0;
+        }
+        catch
+        {
+            // Service not installed — disable button
+            BtnRestartService.IsEnabled = false;
+            BtnRestartService.Opacity = 0.4;
+        }
+    }
+
+    private void RestartService_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            using var sc = new ServiceController("DicomReceiverService");
+
+            if (sc.Status == ServiceControllerStatus.Running)
+            {
+                sc.Stop();
+                sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(10));
+            }
+
+            sc.Start();
+            sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(10));
+
+            MessageBox.Show(L("ServiceRestarted"), L("RestartService"),
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (InvalidOperationException)
+        {
+            MessageBox.Show(L("ServiceNotInstalled"), L("RestartService"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"{L("ServiceRestartFailed")}: {ex.Message}", L("RestartService"),
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)

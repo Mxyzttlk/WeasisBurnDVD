@@ -58,6 +58,10 @@ public static class LocalizationHelper
             ["AutoDeleteCheckbox"] = "Dupa ardere",
             ["MaxStudiesKeep"] = "Max investigatii",
             ["MaxStudiesHint"] = "(0 = nelimitat)",
+            ["RestartService"] = "Restart serviciu",
+            ["ServiceRestarted"] = "Serviciul DICOM a fost repornit",
+            ["ServiceRestartFailed"] = "Eroare la repornirea serviciului",
+            ["ServiceNotInstalled"] = "Serviciul DICOM nu este instalat",
         },
         ["ru"] = new()
         {
@@ -108,6 +112,10 @@ public static class LocalizationHelper
             ["AutoDeleteCheckbox"] = "\u041f\u043e\u0441\u043b\u0435 \u0437\u0430\u043f\u0438\u0441\u0438",
             ["MaxStudiesKeep"] = "\u041c\u0430\u043a\u0441 \u0438\u0441\u0441\u043b\u0435\u0434.",
             ["MaxStudiesHint"] = "(0 = \u0431\u0435\u0437 \u043e\u0433\u0440\u0430\u043d\u0438\u0447\u0435\u043d\u0438\u0439)",
+            ["RestartService"] = "\u041f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0441\u0435\u0440\u0432\u0438\u0441",
+            ["ServiceRestarted"] = "\u0421\u0435\u0440\u0432\u0438\u0441 DICOM \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0449\u0435\u043d",
+            ["ServiceRestartFailed"] = "\u041e\u0448\u0438\u0431\u043a\u0430 \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0441\u043a\u0430 \u0441\u0435\u0440\u0432\u0438\u0441\u0430",
+            ["ServiceNotInstalled"] = "\u0421\u0435\u0440\u0432\u0438\u0441 DICOM \u043d\u0435 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d",
         },
         ["en"] = new()
         {
@@ -158,6 +166,10 @@ public static class LocalizationHelper
             ["AutoDeleteCheckbox"] = "After burn",
             ["MaxStudiesKeep"] = "Max studies",
             ["MaxStudiesHint"] = "(0 = unlimited)",
+            ["RestartService"] = "Restart service",
+            ["ServiceRestarted"] = "DICOM service restarted",
+            ["ServiceRestartFailed"] = "Service restart failed",
+            ["ServiceNotInstalled"] = "DICOM service not installed",
         }
     };
 
