@@ -753,6 +753,7 @@ function Burn-ToDisc {
     # Select optical drive (auto if only one, prompt if multiple)
     $selectedDrive = Select-OpticalDrive
     $recorder = $selectedDrive.Recorder
+    $script:selectedDriveId = $selectedDrive.ID
 
     # Check if blank media is already inserted (for AutoConfirm mode)
     if ($AutoConfirm) {
@@ -827,41 +828,57 @@ function Burn-ToDisc {
         Write-Host "    Ard discul... aceasta poate dura cateva minute." -ForegroundColor Yellow
         $discFormat.Write($stream)
 
-        # Release COM objects BEFORE eject (prevents Windows "Insert disc" dialog)
+        # Get drive letter BEFORE releasing COM objects
+        $ejectDrive = $null
+        try { $ejectDrive = $recorder.VolumePathNames[0] -replace '\\$','' } catch {}
+
+        # Release ALL IMAPI2 COM objects BEFORE eject
         try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($stream) | Out-Null } catch {}
         try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($result) | Out-Null } catch {}
         try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fsImage) | Out-Null } catch {}
         try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discFormat) | Out-Null } catch {}
-
-        # Disable Media Change Notification before eject (prevents Windows from showing "Insert disc")
-        try { $recorder.DisableMcn() } catch {}
-
-        # Start background dialog killer BEFORE eject (catches "Insert disc" within ~150ms)
-        $killerScript = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "dialog-killer-$PID.ps1")
-        try {
-            @'
-for($i=0;$i -lt 60;$i++){
-    try{
-        $w=New-Object -ComObject WScript.Shell
-        foreach($t in @("Insert disc","Insert a disc","Introduceti un disc","Introduceți un disc")){
-            if($w.AppActivate($t)){Start-Sleep -Milliseconds 80;$w.SendKeys("{ESCAPE}")}
-        }
-        [void][Runtime.InteropServices.Marshal]::ReleaseComObject($w)
-    }catch{}
-    Start-Sleep -Milliseconds 150
-}
-try{Remove-Item $MyInvocation.MyCommand.Path -Force}catch{}
-'@ | Set-Content -Path $killerScript -Encoding ASCII
-            Start-Process powershell -ArgumentList "-NoProfile","-WindowStyle","Hidden","-ExecutionPolicy","Bypass","-File",$killerScript -WindowStyle Hidden
-        } catch {}
-
-        # Eject
-        $recorder.EjectMedia()
-
-        # Release recorder (MCN re-enabled automatically by COM/GC — dialog killer handles it)
         try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($recorder) | Out-Null } catch {}
         [GC]::Collect()
         [GC]::WaitForPendingFinalizers()
+
+        # Eject via Win32 (LOCK → DISMOUNT → EJECT) — no IMAPI2, no Shell notification
+        if ($ejectDrive) {
+            try {
+                if (-not ([System.Management.Automation.PSTypeName]'DriveEject').Type) {
+                    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class DriveEject {
+    [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Auto)]
+    static extern IntPtr CreateFile(string f, uint a, uint s, IntPtr p, uint d, uint g, IntPtr t);
+    [DllImport("kernel32.dll")]
+    static extern bool DeviceIoControl(IntPtr h, uint c, IntPtr i, uint si, IntPtr o, uint so, out uint r, IntPtr v);
+    [DllImport("kernel32.dll")]
+    static extern bool CloseHandle(IntPtr h);
+    public static bool Eject(string drive) {
+        IntPtr h = CreateFile(@"\\.\" + drive, 0xC0000000u, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+        if (h == new IntPtr(-1)) return false;
+        uint r;
+        DeviceIoControl(h, 0x90018u, IntPtr.Zero, 0, IntPtr.Zero, 0, out r, IntPtr.Zero);
+        DeviceIoControl(h, 0x90020u, IntPtr.Zero, 0, IntPtr.Zero, 0, out r, IntPtr.Zero);
+        bool ok = DeviceIoControl(h, 0x2D4808u, IntPtr.Zero, 0, IntPtr.Zero, 0, out r, IntPtr.Zero);
+        CloseHandle(h);
+        return ok;
+    }
+}
+"@
+                }
+                [DriveEject]::Eject($ejectDrive)
+            } catch {
+                # Fallback: IMAPI2 eject
+                try {
+                    $fallbackRec = New-Object -ComObject IMAPI2.MsftDiscRecorder2
+                    $fallbackRec.InitializeDiscRecorder($script:selectedDriveId)
+                    $fallbackRec.EjectMedia()
+                    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fallbackRec) | Out-Null
+                } catch {}
+            }
+        }
 
         Write-Ok "DISC ARDS CU SUCCES!"
         $script:burnSuccess = $true
