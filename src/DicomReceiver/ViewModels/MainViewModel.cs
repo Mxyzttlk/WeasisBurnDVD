@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using DicomReceiver.Helpers;
 using DicomReceiver.Models;
@@ -728,6 +730,22 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
                 _knownStudyDirs.Add(studyDir.Name);
 
+                // Check if study already exists in monitor (e.g., from PACS download import).
+                // Skip re-processing to avoid resetting Complete→Receiving.
+                var existingStudy = _monitorService.Studies
+                    .FirstOrDefault(st => st.StudyInstanceUid == studyDir.Name);
+                if (existingStudy != null &&
+                    (existingStudy.Status == StudyStatus.Complete ||
+                     existingStudy.Status == StudyStatus.Burning ||
+                     existingStudy.Status == StudyStatus.Done))
+                {
+                    existingStudy.StoragePath = studyDir.FullName;
+                    if (!Studies.Contains(existingStudy))
+                        Studies.Insert(0, existingStudy);
+                    AddLog($"Study detected: {existingStudy.PatientName} — {existingStudy.ImageCount} images (already complete)");
+                    continue;
+                }
+
                 try
                 {
                     // ============================================================
@@ -970,7 +988,8 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         var downloadService = new PacsDownloadService(_monitorService, downloadFolder, incomingFolder);
 
-        downloadService.LogMessage += (_, msg) => _dispatcher.BeginInvoke(() => AddLog(msg));
+        // Note: PacsDownloadService.LogMessage is subscribed by PacsViewModel._onLogMessage
+        // → PacsViewModel.LogMessage → MainWindow.xaml.cs → AddLogExternal(). No direct sub here.
 
         downloadService.DownloadCompleted += (_, e) =>
         {
@@ -988,7 +1007,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
             });
         };
 
-        var pacsVm = new PacsViewModel(downloadService, _settings);
+        var pacsVm = new PacsViewModel(downloadService, _settingsService, _settings);
 
         // Wire BURN DVD button — find study by UID and trigger burn
         pacsVm.BurnRequested += async (_, studyUid) =>
@@ -1021,8 +1040,8 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
                         pacsVm.OnBurnCompleted(true);
 
-                        // Bring window to foreground after burn
-                        Application.Current?.MainWindow?.Activate();
+                        // Bring window to foreground after burn (Win32 bypass)
+                        ForceForeground();
                     }
                     catch (Exception ex)
                     {
@@ -1073,4 +1092,45 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     }
 
     private static string L(string key) => LocalizationHelper.Get(key);
+
+    // ========================================================================
+    // WIN32 FOCUS — bypass Windows foreground lock after burn process exits
+    // Mirrors PS pacs-burner.ps1 Win32Focus (AttachThreadInput + SetForegroundWindow)
+    // ========================================================================
+
+    [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+    [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+
+    private static void ForceForeground()
+    {
+        var mainWindow = Application.Current?.MainWindow;
+        if (mainWindow == null) return;
+
+        var hwnd = new WindowInteropHelper(mainWindow).Handle;
+        if (hwnd == IntPtr.Zero) return;
+
+        var fgHwnd = GetForegroundWindow();
+        if (fgHwnd == hwnd) { mainWindow.Activate(); return; }
+
+        var fgThread = GetWindowThreadProcessId(fgHwnd, out _);
+        var myThread = GetCurrentThreadId();
+
+        if (fgThread != myThread)
+        {
+            AttachThreadInput(fgThread, myThread, true);
+            ShowWindow(hwnd, 9); // SW_RESTORE
+            SetForegroundWindow(hwnd);
+            AttachThreadInput(fgThread, myThread, false);
+        }
+        else
+        {
+            SetForegroundWindow(hwnd);
+        }
+
+        mainWindow.Activate();
+    }
 }

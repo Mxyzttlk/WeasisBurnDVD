@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using FellowOakDicom;
@@ -53,6 +55,14 @@ public class PacsDownloadService
         _incomingFolder = incomingFolder;
         Directory.CreateDirectory(_downloadFolder);
         Directory.CreateDirectory(_incomingFolder);
+
+        // Add Windows Defender exclusions for download + incoming folders
+        // Prevents 100% CPU (Antimalware Service Executable) during ZIP extraction
+        Task.Run(() =>
+        {
+            AddDefenderExclusion(_downloadFolder);
+            AddDefenderExclusion(_incomingFolder);
+        });
     }
 
     /// <summary>
@@ -318,6 +328,57 @@ public class PacsDownloadService
         foreach (var dir in Directory.GetDirectories(source))
         {
             CopyDirectory(dir, Path.Combine(dest, Path.GetFileName(dir)));
+        }
+    }
+
+    /// <summary>
+    /// Adds Windows Defender real-time scanning exclusion for a folder.
+    /// Prevents 100% CPU on Antimalware Service Executable during ZIP extraction.
+    /// Mirrors burn-gui.ps1 STEP 2b logic. Exclusion is permanent (survives reboots).
+    /// </summary>
+    private void AddDefenderExclusion(string folderPath)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(folderPath);
+
+            // Check if exclusion already exists
+            var checkProc = Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -Command \"(Get-MpPreference -ErrorAction Stop).ExclusionPath -contains '{fullPath}'\"",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+            var checkResult = checkProc?.StandardOutput.ReadToEnd().Trim();
+            checkProc?.WaitForExit();
+
+            if (string.Equals(checkResult, "True", StringComparison.OrdinalIgnoreCase))
+                return; // Already excluded — nothing to do
+
+            // Try to add exclusion — requires admin privileges
+            bool isAdmin = new WindowsPrincipal(WindowsIdentity.GetCurrent())
+                .IsInRole(WindowsBuiltInRole.Administrator);
+
+            if (isAdmin)
+            {
+                var addProc = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-NoProfile -Command \"Add-MpPreference -ExclusionPath '{fullPath}' -ErrorAction Stop\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+                addProc?.WaitForExit();
+                if (addProc?.ExitCode == 0)
+                    Log($"Defender: exclusion added for {fullPath}");
+            }
+            // Non-admin: silently skip — UAC prompt would be intrusive for a non-critical optimization
+        }
+        catch
+        {
+            // Defender disabled, not installed, or other issue — silently ignore
         }
     }
 

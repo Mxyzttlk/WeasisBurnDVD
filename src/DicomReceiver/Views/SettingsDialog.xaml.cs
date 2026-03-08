@@ -14,6 +14,11 @@ public partial class SettingsDialog : Window
 {
     public AppSettings Settings { get; private set; }
 
+    // Drive cache with 10s TTL — prevents repeated slow COM instantiation (200-500ms per call)
+    private static List<(string id, string label)>? _cachedDrives;
+    private static DateTime _lastDriveScan = DateTime.MinValue;
+    private static readonly TimeSpan DriveCacheTtl = TimeSpan.FromSeconds(10);
+
     private static string L(string key) => LocalizationHelper.Get(key);
 
     public SettingsDialog(AppSettings settings)
@@ -36,6 +41,7 @@ public partial class SettingsDialog : Window
                 Name = n.Name, Url = n.Url, Username = n.Username, EncryptedPassword = n.EncryptedPassword
             }).ToList(),
             LastPacsNetworkIndex = settings.LastPacsNetworkIndex,
+            SimulateOnly = settings.SimulateOnly,
             AutoLogin = settings.AutoLogin,
             AutoUnlock = settings.AutoUnlock,
             AutoExcludeViewer = settings.AutoExcludeViewer
@@ -83,6 +89,7 @@ public partial class SettingsDialog : Window
         ChkAutoLogin.IsChecked = Settings.AutoLogin;
         ChkAutoUnlock.IsChecked = Settings.AutoUnlock;
         ChkAutoExcludeViewer.IsChecked = Settings.AutoExcludeViewer;
+        ChkSimulateOnly.IsChecked = Settings.SimulateOnly;
     }
 
     private void ApplyLocalization()
@@ -110,13 +117,23 @@ public partial class SettingsDialog : Window
         LblAutoLogin.Text = L("AutoLogin") + ":";
         LblAutoUnlock.Text = L("AutoUnlock") + ":";
         LblAutoExcludeViewer.Text = L("AutoExcludeViewer") + ":";
+        LblSimulateOnly.Text = L("SimulateOnly") + ":";
+        ChkSimulateOnly.Content = L("SimulateOnlyCheckbox");
         LblEditNetworks.Text = L("PacsNetwork") + ":";
         BtnEditNetworks.Content = L("EditNetworks");
     }
 
-    private void RefreshDrives()
+    private void RefreshDrives(bool forceRefresh = false)
     {
         CmbDriveWriter.Items.Clear();
+
+        // Use cached drives if available and fresh
+        if (!forceRefresh && _cachedDrives != null && (DateTime.UtcNow - _lastDriveScan) < DriveCacheTtl)
+        {
+            PopulateDriveCombo(_cachedDrives);
+            return;
+        }
+
         var drives = new List<(string id, string label)>();
 
         try
@@ -183,6 +200,13 @@ public partial class SettingsDialog : Window
         }
 
         done:
+        _cachedDrives = drives;
+        _lastDriveScan = DateTime.UtcNow;
+        PopulateDriveCombo(drives);
+    }
+
+    private void PopulateDriveCombo(List<(string id, string label)> drives)
+    {
         if (drives.Count == 0)
         {
             // No drives found
@@ -228,7 +252,7 @@ public partial class SettingsDialog : Window
 
     private void RefreshDrives_Click(object sender, RoutedEventArgs e)
     {
-        RefreshDrives();
+        RefreshDrives(forceRefresh: true);
     }
 
     private void BrowseFolder_Click(object sender, RoutedEventArgs e)
@@ -285,6 +309,7 @@ public partial class SettingsDialog : Window
         Settings.AutoLogin = ChkAutoLogin.IsChecked == true;
         Settings.AutoUnlock = ChkAutoUnlock.IsChecked == true;
         Settings.AutoExcludeViewer = ChkAutoExcludeViewer.IsChecked == true;
+        Settings.SimulateOnly = ChkSimulateOnly.IsChecked == true;
 
         // MaxStudiesKeep only relevant when AutoDelete is OFF
         if (!Settings.AutoDeleteAfterBurn)

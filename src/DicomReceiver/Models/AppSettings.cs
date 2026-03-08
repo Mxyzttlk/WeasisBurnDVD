@@ -20,6 +20,7 @@ public class AppSettings
     // Burn settings
     public int BurnSpeed { get; set; } = 4;
     public string SelectedDriveId { get; set; } = ""; // empty = auto-detect
+    public bool SimulateOnly { get; set; } = false;   // burn-gui.ps1 -SimulateOnly flag
 
     // General settings
     public string Language { get; set; } = "auto";

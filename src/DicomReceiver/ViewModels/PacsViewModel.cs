@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -17,6 +18,7 @@ namespace DicomReceiver.ViewModels;
 public class PacsViewModel : ObservableObject, IDisposable
 {
     private readonly PacsDownloadService _downloadService;
+    private readonly SettingsService _settingsService;
     private readonly AppSettings _settings;
     private readonly Dispatcher _dispatcher;
 
@@ -27,6 +29,7 @@ public class PacsViewModel : ObservableObject, IDisposable
     // Automation timers
     private DispatcherTimer? _autoTimer;       // 800ms delay after navigation for login/unlock
     private DispatcherTimer? _modalTimer;      // 1500ms delay after DOMContentLoaded for MutationObserver
+    private DispatcherTimer? _downloadPollTimer; // Adaptive polling for PACS download modal
 
     // Download state — per-operation tracking (supports concurrent downloads)
     private readonly Dictionary<CoreWebView2DownloadOperation, (string path, string name)> _activeDownloads = new();
@@ -91,9 +94,10 @@ public class PacsViewModel : ObservableObject, IDisposable
     /// <summary>Fired when user clicks BURN DVD — passes StudyInstanceUid to MainViewModel.</summary>
     public event EventHandler<string>? BurnRequested;
 
-    public PacsViewModel(PacsDownloadService downloadService, AppSettings settings)
+    public PacsViewModel(PacsDownloadService downloadService, SettingsService settingsService, AppSettings settings)
     {
         _downloadService = downloadService;
+        _settingsService = settingsService;
         _settings = settings;
         _dispatcher = Dispatcher.CurrentDispatcher;
 
@@ -136,6 +140,7 @@ public class PacsViewModel : ObservableObject, IDisposable
         core.NewWindowRequested += OnNewWindowRequested;
 
         Log("WebView2 initialized");
+        CanBurnDvd = true; // BURN always enabled — dual mode (existing ZIP or trigger download)
 
         // Auto-connect to last used network
         if (_settings.PacsNetworks.Count > 0)
@@ -169,6 +174,9 @@ public class PacsViewModel : ObservableObject, IDisposable
 
         var net = _settings.PacsNetworks[index];
         _settings.LastPacsNetworkIndex = index;
+
+        // Persist lastNetwork to disk (like PS version)
+        try { _settingsService.Save(_settings); } catch { }
 
         StatusText = string.Format(L("PacsConnecting"), net.Name);
         StatusColor = "#FFA500"; // orange
@@ -235,12 +243,16 @@ public class PacsViewModel : ObservableObject, IDisposable
 
     private void OnDownloadStarting(object? sender, CoreWebView2DownloadStartingEventArgs e)
     {
-        var uri = e.DownloadOperation.Uri;
-        var originalName = Path.GetFileName(uri);
+        // Use ResultFilePath (browser's suggested path, e.g. C:\Users\X\Downloads\file.zip)
+        // NOT DownloadOperation.Uri (HTTP URL like /api/download?id=xxx — no filename)
+        var originalName = Path.GetFileName(e.ResultFilePath);
 
-        // Only intercept ZIP files
+        // Only intercept ZIP files (non-ZIP: default WebView2 behavior, like PS version)
         if (!originalName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
             return;
+
+        // Stop download poll timer (download was triggered by BURN button polling)
+        _downloadPollTimer?.Stop();
 
         // Redirect to downloads/ folder
         var downloadPath = _downloadService.GetDownloadPath(originalName);
@@ -257,58 +269,135 @@ public class PacsViewModel : ObservableObject, IDisposable
             DownloadInfo = $"{originalName} — 0%";
         });
 
-        // Wire progress — capture name in closure (not field)
+        // Wire progress — update UI directly (like PS version), throttled 500ms
         var dlName = originalName;
+        DateTime lastProgress = DateTime.MinValue;
         e.DownloadOperation.BytesReceivedChanged += (op, _) =>
         {
+            var now = DateTime.UtcNow;
+            if ((now - lastProgress).TotalMilliseconds < 500) return;
+            lastProgress = now;
+
             var dlOp = (CoreWebView2DownloadOperation)op!;
-            _downloadService.OnBytesReceived(
-                dlName,
-                dlOp.BytesReceived,
-                (long)(dlOp.TotalBytesToReceive ?? 0));
+            var received = dlOp.BytesReceived;
+            var total = (long)(dlOp.TotalBytesToReceive ?? 0);
+            var receivedMb = received / (1024.0 * 1024.0);
+
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (total > 0)
+                {
+                    var pct = (int)(received * 100 / total);
+                    var totalMb = total / (1024.0 * 1024.0);
+                    DownloadInfo = $"{dlName} — {receivedMb:F1} / {totalMb:F1} MB ({pct}%)";
+                }
+                else
+                {
+                    DownloadInfo = $"{dlName} — {receivedMb:F1} MB";
+                }
+            });
         };
 
-        // Wire completion
+        // Wire completion (primary path — StateChanged with Completed)
         e.DownloadOperation.StateChanged += OnDownloadStateChanged;
+
+        // Fallback: poll file every 3s — WebView2 StateChanged sometimes never fires Completed
+        var dlPath = downloadPath;
+        bool dlProcessed = false;
+        var fallbackTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        fallbackTimer.Tick += (_, _) =>
+        {
+            if (dlProcessed) { fallbackTimer.Stop(); return; }
+            if (!File.Exists(dlPath)) return;
+
+            // Try to open file exclusively — if it succeeds, WebView2 released the handle
+            try
+            {
+                using var fs = new FileStream(dlPath, FileMode.Open, FileAccess.Read, FileShare.None);
+                fs.Close();
+            }
+            catch (IOException)
+            {
+                return; // Still locked by WebView2 — retry next tick
+            }
+
+            // File is ready — stop everything and process
+            dlProcessed = true;
+            fallbackTimer.Stop();
+            e.DownloadOperation.StateChanged -= OnDownloadStateChanged;
+            _activeDownloads.Remove(e.DownloadOperation);
+            Log($"Download complete (file-ready fallback): {dlName}");
+            ProcessDownloadedZip(dlPath, dlName);
+        };
+        fallbackTimer.Start();
     }
 
-    private async void OnDownloadStateChanged(object? sender, object e)
+    private void OnDownloadStateChanged(object? sender, object e)
     {
-        var op = (CoreWebView2DownloadOperation)sender!;
-
-        // Unsubscribe to prevent leaks (Finding #15)
-        op.StateChanged -= OnDownloadStateChanged;
-
-        // Retrieve per-operation path/name
-        if (!_activeDownloads.TryGetValue(op, out var dl))
-            return;
-        _activeDownloads.Remove(op);
-
-        if (op.State == CoreWebView2DownloadState.Completed)
+        try
         {
-            var path = dl.path;
-            var name = dl.name;
-            var size = op.TotalBytesToReceive;
+            var op = (CoreWebView2DownloadOperation)sender!;
 
-            _dispatcher.BeginInvoke(() =>
+            // Only process terminal states — InProgress fires mid-download
+            if (op.State != CoreWebView2DownloadState.Completed &&
+                op.State != CoreWebView2DownloadState.Interrupted)
+                return;
+
+            op.StateChanged -= OnDownloadStateChanged;
+
+            if (!_activeDownloads.TryGetValue(op, out var dl))
             {
-                DownloadInfo = string.Format(L("PacsDownloadComplete"), name, size / (1024.0 * 1024.0));
-            });
+                Log($"StateChanged {op.State} but download not tracked");
+                return;
+            }
+            _activeDownloads.Remove(op);
 
-            Log($"Download complete: {name} ({size / (1024.0 * 1024.0):F1} MB)");
-
-            // Process ZIP → extract → add to study queue
-            await _downloadService.ProcessCompletedDownloadAsync(path);
+            if (op.State == CoreWebView2DownloadState.Completed)
+            {
+                ProcessDownloadedZip(dl.path, dl.name);
+            }
+            else
+            {
+                _dispatcher.BeginInvoke(() =>
+                {
+                    DownloadInfo = L("PacsDownloadInterrupted");
+                    StatusColor = "#D32F2F";
+                });
+                Log($"Download interrupted: {dl.name}");
+            }
         }
-        else if (op.State == CoreWebView2DownloadState.Interrupted)
+        catch (Exception ex)
         {
-            _dispatcher.BeginInvoke(() =>
-            {
-                DownloadInfo = L("PacsDownloadInterrupted");
-                StatusColor = "#D32F2F";
-            });
-            Log("Download interrupted");
+            Log($"StateChanged error: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Process a completed ZIP file — runs on background thread, updates UI synchronously.
+    /// Separated from event handler to also be callable from fallback timer.
+    /// </summary>
+    private void ProcessDownloadedZip(string path, string name)
+    {
+        Log($"Download complete: {name}");
+
+        _dispatcher.BeginInvoke(() =>
+        {
+            DownloadInfo = L("PacsDownloadProcessing");
+            StatusColor = "#0F9B58";
+        });
+
+        // Fire-and-forget on background — ProcessCompletedDownloadAsync has its own try-catch
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _downloadService.ProcessCompletedDownloadAsync(path);
+            }
+            catch (Exception ex)
+            {
+                Log($"ZIP processing failed: {ex.Message}");
+            }
+        });
     }
 
     private void OnDOMContentLoaded(object? sender, CoreWebView2DOMContentLoadedEventArgs e)
@@ -352,7 +441,15 @@ public class PacsViewModel : ObservableObject, IDisposable
         var net = _settings.PacsNetworks[idx];
 
         // Auto-login
-        if (_settings.AutoLogin && !string.IsNullOrEmpty(net.Username))
+        if (_settings.AutoLogin && string.IsNullOrEmpty(net.Username))
+        {
+            _ = _dispatcher.BeginInvoke(() =>
+            {
+                StatusText = L("PacsAutoLoginHint");
+                StatusColor = "#FFA500";
+            });
+        }
+        else if (_settings.AutoLogin && !string.IsNullOrEmpty(net.Username))
         {
             var user = EscapeJs(net.Username);
             var pass = EscapeJs(net.DecryptedPassword);
@@ -456,12 +553,10 @@ public class PacsViewModel : ObservableObject, IDisposable
     function checkModal() {
         var modal = document.querySelector('.modal-dialog');
         if (!modal) return;
-        var title = modal.querySelector('.modal-title');
-        if (!title || title.textContent.indexOf('Descarcare') < 0) return;
-        var labels = modal.querySelectorAll('.form-group label.checkbox-inline');
+        var labels = modal.querySelectorAll('label');
         for (var i = 0; i < labels.length; i++) {
-            if (labels[i].textContent.trim() === 'Exclude Viewer') {
-                var cb = labels[i].querySelector('input[type=""checkbox""]');
+            if (labels[i].textContent.indexOf('Exclude Viewer') >= 0) {
+                var cb = labels[i].querySelector('input[type=checkbox]');
                 if (cb && !cb.checked) cb.click();
                 break;
             }
@@ -531,10 +626,117 @@ public class PacsViewModel : ObservableObject, IDisposable
 
     private void RequestBurnDvd()
     {
-        if (string.IsNullOrEmpty(_lastDownloadedStudyUid)) return;
-        // Double-burn guard: disable button immediately
-        CanBurnDvd = false;
-        BurnRequested?.Invoke(this, _lastDownloadedStudyUid);
+        if (!string.IsNullOrEmpty(_lastDownloadedStudyUid))
+        {
+            // ZIP already downloaded — burn immediately
+            CanBurnDvd = false;
+            BurnRequested?.Invoke(this, _lastDownloadedStudyUid);
+        }
+        else
+        {
+            // No ZIP — initiate PACS download, auto-burn when done
+            StatusText = L("PacsDownloading").Split('{')[0].TrimEnd() + "...";
+            StatusColor = "#FFA500";
+            DownloadInfo = L("PacsDownloadProcessing");
+            StartPacsDownload();
+        }
+    }
+
+    /// <summary>
+    /// Clicks the PACS download button (.glyphicon-download), then polls for
+    /// the download modal to appear, checks "Exclude Viewer", and clicks "Descarcare".
+    /// Mirrors PS Start-PacsDownload with adaptive polling (500ms→3000ms).
+    /// </summary>
+    private async void StartPacsDownload()
+    {
+        if (!_isWebViewReady || _webView == null) return;
+
+        // Step 1: Click the download toolbar button
+        const string clickDownloadJs = @"
+(function() {
+    var icon = document.querySelector('.glyphicon-download');
+    if (icon) {
+        var btn = icon.closest('button') || icon.parentElement;
+        if (btn) { btn.click(); return 'clicked'; }
+    }
+    return 'no-download-btn';
+})();";
+
+        try
+        {
+            var result = await _webView.CoreWebView2.ExecuteScriptAsync(clickDownloadJs);
+            if (result.Contains("no-download-btn"))
+            {
+                Log("No download button found on page");
+                return;
+            }
+        }
+        catch { return; }
+
+        // Step 2: Poll for download modal (adaptive: 500ms first 20 ticks, then 3000ms)
+        // Mirrors PS Start-PacsDownload: no title check, broad selectors, stateless per tick
+        _downloadPollTimer?.Stop();
+        int ticks = 0;
+        _downloadPollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _downloadPollTimer.Tick += async (_, _) =>
+        {
+            ticks++;
+
+            // Adaptive interval: slow down after 10 seconds
+            if (ticks == 20)
+                _downloadPollTimer!.Interval = TimeSpan.FromMilliseconds(3000);
+
+            // Timeout after ~160 ticks (~8 min with adaptive intervals)
+            if (ticks > 160)
+            {
+                _downloadPollTimer!.Stop();
+                Log("Download modal polling timed out");
+                return;
+            }
+
+            // Stateless JS — each tick tries full sequence (matches PS exactly):
+            // 1. Find modal → if not found, keep polling
+            // 2. Find "Exclude Viewer" checkbox → if unchecked, click it and return (next tick continues)
+            // 3. If checkbox already checked → click btn-primary (Descărcare)
+            const string pollModalJs = @"
+(function() {
+    var modal = document.querySelector('.modal-dialog');
+    if (!modal) return 'no-modal';
+
+    var labels = modal.querySelectorAll('label');
+    for (var i = 0; i < labels.length; i++) {
+        if (labels[i].textContent.indexOf('Exclude Viewer') >= 0) {
+            var cb = labels[i].querySelector('input[type=checkbox]');
+            if (cb && !cb.checked) {
+                cb.click();
+                return 'checkbox-clicked';
+            }
+            break;
+        }
+    }
+
+    var btns = modal.querySelectorAll('button');
+    for (var j = 0; j < btns.length; j++) {
+        if (btns[j].className.indexOf('btn-primary') >= 0) {
+            btns[j].click();
+            return 'download-clicked';
+        }
+    }
+    return 'no-btn';
+})();";
+
+            try
+            {
+                var result = await _webView!.CoreWebView2.ExecuteScriptAsync(pollModalJs);
+                if (result.Contains("download-clicked"))
+                {
+                    _downloadPollTimer!.Stop();
+                    Log("PACS download initiated from modal");
+                }
+            }
+            catch { }
+        };
+        _downloadPollTimer.Start();
     }
 
     /// <summary>
@@ -546,7 +748,7 @@ public class PacsViewModel : ObservableObject, IDisposable
         _dispatcher.BeginInvoke(() =>
         {
             _lastDownloadedStudyUid = null;
-            CanBurnDvd = false;
+            CanBurnDvd = true; // Re-enable for next download or manual trigger
             BurnDvdLabel = L("BurnDvd");
             DownloadInfo = "";
 
@@ -587,6 +789,7 @@ public class PacsViewModel : ObservableObject, IDisposable
     {
         _autoTimer?.Stop();
         _modalTimer?.Stop();
+        _downloadPollTimer?.Stop();
 
         // Unsubscribe download service events (prevent leaks if recreated)
         _downloadService.DownloadProgress -= OnDownloadProgress;

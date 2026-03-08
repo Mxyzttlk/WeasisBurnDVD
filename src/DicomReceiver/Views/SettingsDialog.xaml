@@ -2,13 +2,14 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Name="SettingsWindow"
-        Width="500" Height="680"
+        Width="500" Height="720"
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         Background="{StaticResource BackgroundBrush}">
 
     <Grid Margin="20">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -141,15 +142,22 @@
                   Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"
                   Margin="0,0,0,10" FontSize="13" />
 
+        <!-- Simulate Only -->
+        <TextBlock Grid.Row="13" Grid.Column="0" x:Name="LblSimulateOnly" Text="Simulate:" VerticalAlignment="Center"
+                   Foreground="#FFA500" Margin="0,0,0,10" />
+        <CheckBox Grid.Row="13" Grid.Column="1" x:Name="ChkSimulateOnly"
+                  Foreground="#FFA500" VerticalAlignment="Center"
+                  Margin="0,0,0,10" FontSize="13" />
+
         <!-- Edit Networks -->
-        <TextBlock Grid.Row="13" Grid.Column="0" x:Name="LblEditNetworks" Text="Networks:" VerticalAlignment="Center"
+        <TextBlock Grid.Row="14" Grid.Column="0" x:Name="LblEditNetworks" Text="Networks:" VerticalAlignment="Center"
                    Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,10" />
-        <Button Grid.Row="13" Grid.Column="1" x:Name="BtnEditNetworks" Content="Edit Networks..."
+        <Button Grid.Row="14" Grid.Column="1" x:Name="BtnEditNetworks" Content="Edit Networks..."
                 Click="EditNetworks_Click" Style="{StaticResource DarkButton}"
                 Width="150" HorizontalAlignment="Left" Margin="0,0,0,10" />
 
         <!-- Buttons -->
-        <StackPanel Grid.Row="15" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
+        <StackPanel Grid.Row="16" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="BtnRestartService" Content="Restart Service" Click="RestartService_Click"
                     Style="{StaticResource DarkButton}" Width="130" Margin="0,0,8,0" />
             <Button x:Name="BtnCancel" Content="Cancel" Click="Cancel_Click"

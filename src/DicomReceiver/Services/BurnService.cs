@@ -260,6 +260,8 @@ public class BurnService
             var args = $"-ExecutionPolicy Bypass -File \"{burnScript}\" -DicomFolder \"{study.StoragePath}\" -BurnSpeed {settings.BurnSpeed}";
             if (!string.IsNullOrEmpty(settings.SelectedDriveId))
                 args += $" -DriveID \"{settings.SelectedDriveId}\"";
+            if (settings.SimulateOnly)
+                args += " -SimulateOnly";
 
             var psi = new ProcessStartInfo
             {
@@ -530,6 +532,8 @@ public class BurnService
             var args = $"-ExecutionPolicy Bypass -File \"{burnScript}\" -DicomFolder \"{stagingDir}\" -BurnSpeed {settings.BurnSpeed}";
             if (!string.IsNullOrEmpty(settings.SelectedDriveId))
                 args += $" -DriveID \"{settings.SelectedDriveId}\"";
+            if (settings.SimulateOnly)
+                args += " -SimulateOnly";
 
             var psi = new ProcessStartInfo
             {

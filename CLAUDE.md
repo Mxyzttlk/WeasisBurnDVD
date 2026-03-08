@@ -1599,12 +1599,14 @@ src/DicomReceiver/
 - Reducere timp startup + memorie
 
 **Download → Study pipeline**:
-- WebView2 `DownloadStarting` → redirect la `downloads/`
-- `BytesReceivedChanged` → progres throttled (max 2/sec)
-- `StateChanged` Completed → `PacsDownloadService.ProcessCompletedDownloadAsync()`
-- ZIP extract → find DICOM → copy incoming/ → `OnFileReceived()` → apare în Queue
+- WebView2 `DownloadStarting` → redirect la `downloads/`, `e.ResultFilePath` pentru filename
+- `BytesReceivedChanged` → progres direct pe UI (throttled 500ms), afișare MB + procent
+- Completare: `StateChanged` Completed (primar) SAU file-ready polling timer 3s (fallback — WebView2 bug)
+- File-ready check: `FileStream(FileShare.None)` — dacă IOException, WebView2 încă ține handle → retry
+- ZIP extract → find DICOM → copy incoming/ → `OnFileReceived()` → `ForceCompleteStudy()` → apare în Queue
+- Auto-burn: `DownloadCompleted` event → `RequestBurnDvd()` → `BurnRequested` event → burn-gui.ps1
 
-#### Build status: ✅ 0 erori, 4 warnings (CS4014 — BeginInvoke fire-and-forget intenționat)
+#### Build status: ✅ 0 erori, 0 warnings
 
 ### Module neimplementate încă
 1. ~~**PACS Web module** — WebView2 browser (port din pacs-burner.ps1)~~ ✅ IMPLEMENTAT (SESSION 2026-03-08)
@@ -1722,6 +1724,59 @@ Două moduri de operare:
 7. ❌ **Firewall pe PC-ul de burn** — portul ales (ex: 4006) trebuie deschis
 
 **Ordinea implementării**: afli datele → eu scriu app-ul C# → inginerul configurează stațiile → testare
+
+### SESSION 2026-03-09 (PACS Browser download pipeline — 6 fix-uri):
+
+#### Context: Portarea pacs-burner.ps1 → C# WebView2 în DicomReceiver
+Prima testare reală a pipeline-ului PACS Browser: BURN DVD → auto-download → extract → burn.
+Găsite 6 buguri, toate rezolvate.
+
+#### Bug 1: Log-uri duplicate (Defender exclusion apărea de 2 ori)
+- **Cauza**: `PacsDownloadService.LogMessage` avea 2 subscriberi — MainViewModel (linia 975) ȘI PacsViewModel (linia 112)
+- **Fix**: Eliminat subscriber-ul din MainViewModel; mesajele trec prin PacsViewModel → LogMessage → MainWindow → AddLogExternal
+
+#### Bug 2: "Exclude Viewer" nu se bifa + descărcarea nu pornea
+- **Cauza**: JS `indexOf('Descarcare')` nu se potrivea cu HTML `'Descărcare'` (diacritice ă). Și selectori strict (`.form-group label.checkbox-inline`)
+- **Fix**: Eliminat verificarea titlului modal (PS nu avea), selectori largi `label` + `indexOf` în loc de `===`
+- Aplicat în AMBELE: `StartPacsDownload` (poll modal) și `InjectModalObserver` (MutationObserver)
+
+#### Bug 3: Descărcare în C:\Users\Downloads în loc de E:\Weasis Burn\downloads
+- **Cauza**: `Path.GetFileName(e.DownloadOperation.Uri)` pe URL HTTP `/api/download?id=xxx` nu returna nume fișier .zip. PS folosea `$e.ResultFilePath`
+- **Fix**: Schimbat la `Path.GetFileName(e.ResultFilePath)` — calea sugerată de browser conține numele real
+
+#### Bug 4: Descărcare blocată la ~88% (StateChanged nu se declanșa)
+- **Cauza**: `OnDownloadStateChanged` se dezabona la ORICE stare inclusiv `InProgress`, pierzând `Completed`
+- **Fix**: Dezabonare doar la stări terminale (Completed, Interrupted)
+- Eliminat `CloseDefaultDownloadDialog` handler și `e.Handled=true` pentru non-ZIP (absente în PS)
+
+#### Bug 5: Progress descărcare rămânea la 0%
+- **Cauza**: Progresul trecea prin `PacsDownloadService.OnBytesReceived()` → event → handler — prea indirect, nu ajungea la UI
+- **Fix**: Actualizare `DownloadInfo` direct din `BytesReceivedChanged` handler cu throttle 500ms local
+- Afișare: `filename — 32.9 / 37.5 MB (87%)`; fără Content-Length: `filename — 32.9 MB`
+
+#### Bug 6: WebView2 StateChanged cu Completed NU se declanșează NICIODATĂ pentru server-ul PACS
+- **Simptom**: ZIP complet pe disc, progress la 87%, StateChanged nu vine
+- **Încercare 1**: Fallback `BytesReceivedChanged` cu `received >= total` → eroare "file is being use" (WebView2 încă ține handle-ul)
+- **Fix final**: Timer polling DispatcherTimer la fiecare 3 secunde:
+  1. Verifică `File.Exists(dlPath)`
+  2. `new FileStream(dlPath, FileMode.Open, FileAccess.Read, FileShare.None)` — dacă `IOException` → retry
+  3. Fișier accesibil → procesare ZIP
+- Protecție anti-duplicat: `dlProcessed` bool + `_activeDownloads.Remove()` în fallback timer; `OnDownloadStateChanged` verifică `TryGetValue` → early return dacă fallback deja a procesat
+
+#### Bug 7 (din sesiunea precedentă): Pagina PACS se reîncarcă în loc să ardă
+- **Cauza**: `ScanIncomingFolder` apela `OnFileReceived` pe fișiere deja procesate → StudyMonitorService reseta Complete→Receiving → `BurnRequested` vedea status Receiving → `OnBurnCompleted(false)` → `Reload()`
+- **Fix**: Early-exit în `ScanIncomingFolder` — studiile Complete/Burning/Done nu sunt re-procesate
+
+#### Fișiere modificate:
+- **`ViewModels/PacsViewModel.cs`** — toate fix-urile download (6 buguri)
+- **`ViewModels/MainViewModel.cs`** — eliminat subscriber duplicat LogMessage + early-exit ScanIncomingFolder
+- **`Services/PacsDownloadService.cs`** — Defender exclusion silențios la non-admin
+
+#### Build: ✅ 0 erori, 0 warnings
+
+#### De testat:
+- Fallback timer detectează ZIP finalizat → procesare → studiu în DICOM Queue → burn-gui.ps1 se lansează
+- Pipeline complet end-to-end: BURN DVD → download → extract → import → burn
 
 ## Hardware
 - Work: internal DVD writer
