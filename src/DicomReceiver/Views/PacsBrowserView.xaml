@@ -1,0 +1,89 @@
+<UserControl x:Class="DicomReceiver.Views.PacsBrowserView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+             Background="{StaticResource BackgroundBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1"
+                Padding="8,6">
+            <DockPanel>
+                <!-- Right side: Settings + Refresh + Open Downloads -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button x:Name="BtnSettings"
+                            Style="{StaticResource DarkButton}" Padding="8,4" Margin="4,0,0,0"
+                            Click="BtnSettings_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="14" VerticalAlignment="Center" Margin="0,0,5,0" />
+                            <TextBlock x:Name="TxtSettingsLabel" Text="Settings" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="BtnOpenDownloads"
+                            Style="{StaticResource DarkButton}" Padding="8,4" Margin="4,0,0,0"
+                            ToolTip="Open downloads"
+                            Command="{Binding OpenDownloadsFolderCommand}">
+                        <TextBlock Text="&#xE838;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
+                    </Button>
+                    <Button x:Name="BtnRefresh"
+                            Style="{StaticResource DarkButton}" Padding="8,4" Margin="4,0,0,0"
+                            ToolTip="Refresh"
+                            Command="{Binding RefreshCommand}">
+                        <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="14" />
+                    </Button>
+                </StackPanel>
+
+                <!-- Left side: Network selector + Connect -->
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="TxtNetworkLabel" Text="Network:"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,8,0" FontSize="13" />
+                    <ComboBox x:Name="CmbNetwork" Width="320"
+                              ItemsSource="{Binding NetworkLabels}"
+                              SelectedIndex="{Binding SelectedNetworkIndex}"
+                              VerticalAlignment="Center" />
+                    <Button x:Name="BtnConnect" Content="Connect" Margin="8,0,0,0"
+                            Style="{StaticResource AccentButton}" Padding="16,4"
+                            Command="{Binding ConnectCommand}" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- WebView2 -->
+        <Border Grid.Row="1" Background="{StaticResource BackgroundBrush}">
+            <wv2:WebView2 x:Name="WebView" />
+        </Border>
+
+        <!-- Status bar -->
+        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
+                Padding="8,4">
+            <DockPanel>
+                <!-- Right side: BURN DVD button -->
+                <Button DockPanel.Dock="Right"
+                        Content="{Binding BurnDvdLabel}"
+                        Command="{Binding BurnDvdCommand}"
+                        IsEnabled="{Binding CanBurnDvd}"
+                        Style="{StaticResource AccentButton}"
+                        Padding="12,4" FontSize="13" FontWeight="SemiBold"
+                        Margin="8,0,0,0" />
+
+                <!-- Left side: status -->
+                <Ellipse x:Name="StatusDot" Width="8" Height="8"
+                         Fill="#666666" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <TextBlock x:Name="TxtStatus" Text="{Binding StatusText}"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           VerticalAlignment="Center" FontSize="12" />
+                <TextBlock x:Name="TxtDownloadInfo" Text="{Binding DownloadInfo}"
+                           Foreground="{StaticResource AccentBrush}"
+                           VerticalAlignment="Center" FontSize="12" Margin="16,0,0,0" />
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>

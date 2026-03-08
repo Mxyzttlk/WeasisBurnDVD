@@ -986,8 +986,9 @@ src/DicomReceiver/
 - `enum StudyStatus { Receiving, Complete, Burning, Done, Error }`
 - `TotalSizeFormatted` — computed property: B/KB/MB/GB
 
-#### 6. AppSettings.cs — Configuration (15 linii)
+#### 6. AppSettings.cs — Configuration
 ```csharp
+// DICOM SCP
 AeTitle = "WEASIS_BURN"     // AE Title SCP
 Port = 4006                  // Port ascultare
 IncomingFolder = ""          // Default: {exe}/incoming
@@ -997,24 +998,33 @@ Language = "auto"            // auto/ro/ru/en
 AutoDeleteAfterBurn = true   // Șterge DICOM după burn
 MaxStudiesKeep = 0           // 0 = nelimitat (auto-purge doar când AutoDelete=false)
 SelectedDriveId = ""         // IMAPI2 drive ID
+// PACS Browser
+PacsNetworks = [External, Internal]  // Lista rețele PACS (DPAPI parole)
+LastPacsNetworkIndex = 0     // Ultima rețea selectată
+AutoLogin = true             // Auto-login la navigare
+AutoUnlock = true            // Auto-deblocare sesiune
+AutoExcludeViewer = true     // Auto-bifare "Exclude Viewer" la descărcare
 ```
 Stocare: `%APPDATA%\WeasisBurn\dicom-receiver-settings.json`
 
-#### 7. SettingsDialog.xaml/.cs — Settings UI (300 linii)
+#### 7. SettingsDialog.xaml/.cs — Settings UI
 - IMAPI2 COM drive enumeration: `MsftDiscMaster2` → `MsftDiscRecorder2.InitializeDiscRecorder()`
 - VolumePathNames → drive letter, VendorId + ProductId → label
 - `Marshal.ReleaseComObject()` pe toate obiectele COM (cleanup corect)
 - Validare: AE Title non-empty, Port 1-65535, Timeout 5-300, MaxStudies >= 0
 - AutoDelete ON → MaxStudies disabled (mutual exclusion)
 - `FolderBrowserDialog` (WinForms) pentru incoming folder
+- **Secțiune PACS Browser**: 3 CheckBox-uri (AutoLogin, AutoUnlock, AutoExcludeViewer) + "Edit Networks" button
+- `EditNetworks_Click` → deschide `PacsNetworkDialog` (deep copy, cancel discarde)
 
-#### 8. LocalizationHelper.cs — Multilingual (194 linii)
-- 3 limbi: RO, RU, EN (60+ chei fiecare)
+#### 8. LocalizationHelper.cs — Multilingual
+- 3 limbi: RO, RU, EN (~100 chei fiecare)
 - Auto-detect: `CultureInfo.CurrentCulture.TwoLetterISOLanguageName`
 - Fallback: EN dacă cheie lipsă
 - Chei UI: AppTitle, Start/Stop, Settings, Burn, Delete, PatientName, StudyDate, Modality, etc.
 - Chei status: ScpRunning/Stopped, Receiving/Complete/Burning/Done/Error
 - Chei dialog: ConfirmDelete, RestartRequired, NoDrives, etc.
+- Chei PACS: TabQueue, TabPacs, PacsNetwork, PacsConnect, PacsDisconnected/Connecting/Connected, PacsDownloading/Complete/Error, AutoLogin, AutoUnlock, AutoExcludeViewer, EditNetworks, NetworkName/Url/Username/Password, etc.
 
 #### 9. App.xaml — Dark Theme Global (216 linii)
 - Culori: Background #1E1E1E, Surface #2D2D2D, Border #3E3E3E, Accent #0F9B58, Error #E53935
@@ -1023,7 +1033,10 @@ Stocare: `%APPDATA%\WeasisBurn\dicom-receiver-settings.json`
 - ComboBoxItem: hover (#3E3E3E), selected (#33FFFFFF)
 - Toate brush-urile ca StaticResource — frozen, zero alocare la runtime
 
-#### 10. MainWindow.xaml — Main UI (242 linii)
+#### 10. MainWindow.xaml — Main UI (TabControl)
+- **TabControl** cu 2 tab-uri (dark theme TabItem style, border-bottom accent verde):
+  - Tab 1 "DICOM Queue" (icon &#xE8A5;) — conținutul existent
+  - Tab 2 "PACS Browser" (icon &#xE774;) — `<views:PacsBrowserView />`
 - **Toolbar**: Start/Stop SCP (AccentButton), Settings (gear icon Segoe MDL2 Assets), Delete All
 - **DataGrid**: Auto-generated=false, IsReadOnly, SelectionMode=Single
   - Coloane: Status (Ellipse color-coded), Patient, StudyDate, Modality, Series, Images, Size, StatusText
@@ -1032,6 +1045,7 @@ Stocare: `%APPDATA%\WeasisBurn\dicom-receiver-settings.json`
 - **Log Panel**: ListBox Consolas 11pt, auto-scroll via CollectionChanged
 - **Status Bar**: Ellipse (verde=running, roșu=stopped) + StatusText
 - GridSplitter între DataGrid și Log
+- **Lazy init**: PacsViewModel creat doar la prima selectare tab PACS
 
 ### Arhitectura threading
 
@@ -1367,8 +1381,233 @@ Gestionează DOUĂ layout-uri de directoare:
 #### Fișiere modificate:
 - `Services/BurnService.cs` — fix guard BurnStudyAsync + BurnMultipleStudiesAsync + fix CheckDiscReady media state
 
+### SESSION 2026-03-08 (PACS Browser WebView2 — integrare completă în DicomReceiver):
+
+#### Context: port app/pacs-burner.ps1 → C# WPF
+Aplicația PowerShell WPF + WebView2 (`app/pacs-burner.ps1`) oferă browser PACS cu auto-login, auto-unlock,
+auto "Exclude Viewer", interceptare descărcări ZIP. Portată integral în aplicația C# DicomReceiver ca
+tab "PACS Browser" — eliminează necesitatea aplicației separate PowerShell.
+
+#### Arhitectura integrării
+
+```
+MainWindow (TabControl)
+├── Tab 1 "DICOM Queue"    — conținut existent (toolbar, DataGrid, log, status bar)
+└── Tab 2 "PACS Browser"   — PacsBrowserView (UserControl nou)
+    ├── Toolbar: ComboBox rețele + Button Conectare + Refresh + Open Downloads
+    ├── WebView2 control (Chromium browser integrat)
+    └── Status bar: dot culoare + status text + download info
+
+PacsViewModel (logica tab-ului PACS):
+├── SetWebView() — primește WebView2 de la code-behind
+├── NavigationCompleted → RunPageAutomation() (auto-login + auto-unlock)
+├── DOMContentLoaded → InjectModalObserver() (auto exclude viewer)
+├── DownloadStarting → interceptare ZIP → PacsDownloadService
+└── DownloadStateChanged → ProcessCompletedDownloadAsync()
+
+PacsDownloadService (pipeline descărcare):
+├── GetDownloadPath() — cale în downloads/
+├── OnBytesReceived() — progres throttled 500ms
+└── ProcessCompletedDownloadAsync() — Task.Run():
+    ├── ZipFile.ExtractToDirectory()
+    ├── Detectare layout ZIP (3 variante)
+    ├── Copiere DICOM în incoming/{StudyUID}/
+    └── StudyMonitorService.OnFileReceived() per fișier
+        → Studiul apare în Tab "DICOM Queue" ca "Complete"
+```
+
+#### Fișiere noi (7)
+
+**1. `Models/PacsNetwork.cs`** (~50 linii)
+- Model rețea PACS: Name, Url, Username, EncryptedPassword (DPAPI Base64)
+- `CryptoHelper` static class: `Encrypt(string)` / `Decrypt(string)`
+- `ProtectedData.Protect/Unprotect` cu `DataProtectionScope.CurrentUser`
+- `[JsonIgnore] DecryptedPassword` — computed property get/set
+
+**2. `Services/PacsDownloadService.cs`** (~260 linii)
+- `GetDownloadPath(originalFilename)` — cale safe în `downloads/`
+- `OnBytesReceived(received, total)` — throttled 500ms minim interval
+- `ProcessCompletedDownloadAsync(zipPath)` — rulează pe `Task.Run()`:
+  - Extrage ZIP cu `ZipFile.ExtractToDirectory()`
+  - Detectează 3 layout-uri: "Exclude Viewer" (`DIR000/` la root), "With Viewer" (nested `viewer-mac.app/Contents/DICOM/DIR000/`), flat DCM
+  - Copiază fișierele DICOM în `incoming/{StudyUID}/`
+  - Parsează metadata cu `DicomFile.Open(path, FileReadOption.SkipLargeTags)`
+  - Apelează `StudyMonitorService.OnFileReceived()` per fișier DICOM
+- Evenimente: `DownloadProgress`, `DownloadCompleted`, `LogMessage`
+
+**3. `ViewModels/PacsViewModel.cs`** (~490 linii)
+- `ObservableObject` cu proprietăți: `StatusText`, `StatusColor`, `DownloadInfo`, `SelectedNetworkIndex`, `NetworkLabels`
+- Comenzi: `ConnectCommand`, `RefreshCommand`, `OpenDownloadsFolderCommand`
+- `SetWebView(WebView2)` — wire-ează `NavigationCompleted`, `DownloadStarting`, `DOMContentLoaded`, `NewWindowRequested`
+- **Auto-login JS** — React native setter:
+  ```javascript
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+  + dispatchEvent(new Event('input', {bubbles: true}))
+  + submit după 300ms delay
+  ```
+- **Auto-unlock JS** — detectează `.panel.panel-danger` "Blocat" + aceeași injecție
+- **MutationObserver JS** — observă `document.body` childList+subtree, debounce 500ms, caută `.modal-dialog` → "Exclude Viewer" checkbox → click
+- **Download interception** — `.zip` redirect la `downloads/`, progres throttled 2/sec, `Completed` → `ProcessCompletedDownloadAsync()`
+- Timere: `_autoTimer` (800ms după navigare), `_modalTimer` (1500ms DOMContentLoaded)
+- `EscapeJs()` — escape \, ', \n, \r pentru string-uri JS
+- `Dispose()` — oprește timere, unwire events, dispose WebView2
+
+**4. `Views/PacsBrowserView.xaml`** (~75 linii)
+- UserControl cu 3-row Grid:
+  - Row 0 (Auto): Toolbar — TextBlock "Rețea:" + ComboBox rețele + Button "Conectare" (Accent) + Button Refresh + Button "Open Downloads"
+  - Row 1 (*): WebView2 control
+  - Row 2 (Auto): Status bar — Ellipse (culoare status) + TextBlock status + TextBlock download info
+- Dark theme, reutilizează stilurile din App.xaml
+
+**5. `Views/PacsBrowserView.xaml.cs`** (~110 linii)
+- `OnLoaded`: lazy WebView2 init (`CoreWebView2Environment.CreateAsync(userDataFolder)` + `EnsureCoreWebView2Async`)
+- `UserDataFolder`: `%APPDATA%\WeasisBurn\WebView2Data` (shared cu app PowerShell — păstrează sesiunea/cookies)
+- Injectează popup blocker script via `AddScriptToExecuteOnDocumentCreatedAsync`
+- Pasează WebView2 la PacsViewModel via `SetWebView()`
+- `SetupStatusColorBinding()` — actualizează Ellipse fill când StatusColor se schimbă
+
+**6. `Views/PacsNetworkDialog.xaml`** (~85 linii)
+- Dialog modal 600×440 pentru gestiune rețele PACS
+- Stânga: ListBox rețele + butoane Move Up/Down
+- Dreapta: câmpuri edit (Name, URL, Username, PasswordBox)
+- Butoane: Adaugă, Salvează, Șterge, OK, Anulează
+- Dark theme identic cu SettingsDialog
+
+**7. `Views/PacsNetworkDialog.xaml.cs`** (~180 linii)
+- Deep copy la intrare (anularea discarde modificări)
+- `PasswordBox` → `PacsNetwork.DecryptedPassword` (DPAPI transparent)
+- Event handlers: Add, Save, Delete, MoveUp, MoveDown, OK, Cancel
+- OK auto-saves selecția curentă înainte de închidere
+- `ApplyLocalization()` pe toate label-urile
+
+#### Fișiere modificate (6)
+
+**8. `DicomReceiver.csproj`** — 2 NuGet adăugate:
+```xml
+<PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+<PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+```
+
+**9. `Models/AppSettings.cs`** — proprietăți PACS noi:
+```csharp
+public List<PacsNetwork> PacsNetworks { get; set; } = new()
+{
+    new() { Name = "External", Url = "http://imagistica.scr.md/portal/" },
+    new() { Name = "Internal", Url = "http://192.168.22.10/portal/" }
+};
+public int LastPacsNetworkIndex { get; set; } = 0;
+public bool AutoLogin { get; set; } = true;
+public bool AutoUnlock { get; set; } = true;
+public bool AutoExcludeViewer { get; set; } = true;
+```
+
+**10. `MainWindow.xaml`** — wrapat în TabControl:
+- Tab 1 "DICOM Queue" (icon &#xE8A5;) — Grid-ul cu 5 rânduri existent
+- Tab 2 "PACS Browser" (icon &#xE774;) — `<views:PacsBrowserView />`
+- Stil TabItem dark: border-bottom accent verde pe tab selectat, hover #3E3E3E
+- `MainTabControl_SelectionChanged` pentru lazy init
+
+**11. `MainWindow.xaml.cs`** — lazy init tab PACS:
+- `_pacsViewModel` field — creat la prima selectare tab PACS
+- `MainTabControl_SelectionChanged` → `mainVm.CreatePacsViewModel()` factory
+- `_pacsViewModel.LogMessage` → `mainVm.AddLogExternal()` (log-ul partajat)
+- `Window_Closing` → `_pacsViewModel?.Dispose()`
+- Localizare: `TxtQueueTab.Text = L("TabQueue")`, `TxtPacsTab.Text = L("TabPacs")`
+
+**12. `ViewModels/MainViewModel.cs`** — factory + log extern:
+- `AddLogExternal(string msg)` — wrapper public peste `AddLog()` privat, thread-safe BeginInvoke
+- `CreatePacsViewModel()` — creează `PacsDownloadService` + `PacsViewModel`, wire-ește `DownloadCompleted` → `ScanIncomingFolder()`
+
+**13. `Views/SettingsDialog.xaml`** — secțiune PACS adăugată:
+- Height crescut la 680px
+- Rows 9-13: PACS section header + 3 CheckBox-uri (AutoLogin, AutoUnlock, AutoExcludeViewer) + Button "Edit Networks"
+- RowDefinitions extinse de la 11 la 16 rânduri
+
+**14. `Views/SettingsDialog.xaml.cs`** — load/save PACS settings:
+- Constructor deep-copy PACS settings (PacsNetworks, AutoLogin, etc.)
+- Populare checkbox-uri PACS
+- Save: `Settings.AutoLogin/AutoUnlock/AutoExcludeViewer`
+- `EditNetworks_Click` → deschide `PacsNetworkDialog`
+- `ApplyLocalization()` — labels PACS section
+
+**15. `Helpers/LocalizationHelper.cs`** — ~36 chei noi × 3 limbi:
+- Tab-uri: TabQueue, TabPacs
+- Toolbar: PacsNetwork, PacsConnect, PacsRefresh, OpenDownloads
+- Status: PacsDisconnected, PacsConnecting, PacsConnected, PacsNavError
+- Download: PacsDownloading, PacsDownloadComplete, PacsDownloadInterrupted, PacsDownloadProcessing, PacsDownloadProcessed, PacsDownloadError
+- Automatizare: PacsAutoLogin, PacsAutoUnlock, AutoLogin, AutoUnlock, AutoExcludeViewer
+- Settings: PacsSectionTitle, EditNetworks
+- Dialog rețele: PacsNetworksTitle, NetworkName, NetworkUrl, NetworkUsername, NetworkPassword, AddNetwork, DeleteNetwork, MoveUp, MoveDown, OK, NoNetworks
+
+#### Structura proiectului actualizată
+
+```
+src/DicomReceiver/
+├── DicomReceiver.csproj
+├── App.xaml / App.xaml.cs
+├── MainWindow.xaml / .xaml.cs         ← TabControl (Queue + PACS)
+├── Helpers/
+│   ├── LocalizationHelper.cs          ← ~100 chei × 3 limbi
+│   ├── RelayCommand.cs
+│   └── StudyStatusToBoolConverter.cs
+├── Models/
+│   ├── ReceivedStudy.cs
+│   ├── AppSettings.cs                 ← + PACS properties
+│   └── PacsNetwork.cs                 ← NOU: model + CryptoHelper (DPAPI)
+├── Services/
+│   ├── DicomScpService.cs
+│   ├── StudyMonitorService.cs
+│   ├── BurnService.cs
+│   ├── SettingsService.cs
+│   └── PacsDownloadService.cs         ← NOU: ZIP → incoming/ pipeline
+├── ViewModels/
+│   ├── MainViewModel.cs               ← + CreatePacsViewModel(), AddLogExternal()
+│   └── PacsViewModel.cs               ← NOU: WebView2 + auto-login/unlock/exclude
+├── Views/
+│   ├── SettingsDialog.xaml / .xaml.cs  ← + PACS section
+│   ├── PacsBrowserView.xaml / .xaml.cs ← NOU: WebView2 UserControl
+│   └── PacsNetworkDialog.xaml / .xaml.cs ← NOU: edit rețele PACS
+└── Resources/
+    └── weasis.ico
+```
+
+#### NuGet packages actualizate
+
+| Package | Versiune | Rol |
+|---------|----------|-----|
+| **fo-dicom** | 5.1.3 | C-STORE SCP, DICOM parsing, DICOMDIR |
+| **CommunityToolkit.Mvvm** | 8.4.0 | `[ObservableProperty]`, `ObservableObject` |
+| **System.ServiceProcess.ServiceController** | 8.0.1 | Detectare Windows Service |
+| **Microsoft.Web.WebView2** | 1.0.2903.40 | Browser Chromium integrat (PACS) |
+| **System.Security.Cryptography.ProtectedData** | 8.0.0 | DPAPI criptare parole rețele |
+
+#### Patteruri tehnice cheie
+
+**React value injection** (port din pacs-burner.ps1):
+- Direct `.value = "text"` e ignorat de React — state intern nu se actualizează
+- Soluția: native setter din HTMLInputElement prototype + dispatch `input` event
+- React ascultă evenimentul input și actualizează state-ul
+
+**WebView2 shared session**:
+- `UserDataFolder` = `%APPDATA%\WeasisBurn\WebView2Data\` — aceeași cale ca app PowerShell
+- Cookies și sesiunea sunt păstrate între app-ul C# și cel PowerShell
+- Auto-login-ul funcționează datorită sesiunii persistente
+
+**Lazy initialization pattern**:
+- `PacsViewModel` creat DOAR la prima selectare tab PACS (nu la startup)
+- WebView2 init doar în `PacsBrowserView.OnLoaded`
+- Reducere timp startup + memorie
+
+**Download → Study pipeline**:
+- WebView2 `DownloadStarting` → redirect la `downloads/`
+- `BytesReceivedChanged` → progres throttled (max 2/sec)
+- `StateChanged` Completed → `PacsDownloadService.ProcessCompletedDownloadAsync()`
+- ZIP extract → find DICOM → copy incoming/ → `OnFileReceived()` → apare în Queue
+
+#### Build status: ✅ 0 erori, 4 warnings (CS4014 — BeginInvoke fire-and-forget intenționat)
+
 ### Module neimplementate încă
-1. **PACS Web module** — WebView2 browser (port din pacs-burner.ps1) — LIPSEȘTE
+1. ~~**PACS Web module** — WebView2 browser (port din pacs-burner.ps1)~~ ✅ IMPLEMENTAT (SESSION 2026-03-08)
 2. **IMAPI2 burn nativ C#** — burn direct din C# fără PowerShell — LIPSEȘTE (acum delegă la burn.ps1)
 3. **Pipeline paralel** — burn în background + descărcare simultană — LIPSEȘTE
 4. **Single exe publish** — neconfigurat
@@ -1393,7 +1632,7 @@ Două moduri de operare:
 |------------|-----|--------|
 | **DicomReceiverService** (Windows Service) | C-STORE SCP 24/7, primește fișiere | ✅ IMPLEMENTAT |
 | **DicomReceiver** (WPF app) | UI: monitorizare studii, DICOMDIR, burn DVD | ✅ IMPLEMENTAT |
-| **PACS Web module** (WebView2) | Browser PACS integrat + descărcare ZIP | ❌ NEIMPLEMENTAT |
+| **PACS Web module** (WebView2) | Browser PACS integrat + descărcare ZIP | ✅ IMPLEMENTAT |
 
 ### Ce funcționează acum:
 - ✅ fo-dicom C-STORE SCP (înlocuiește dcmtk storescp.exe)
@@ -1405,6 +1644,10 @@ Două moduri de operare:
 - ✅ Fallback dcmmkdir dacă fo-dicom eșuează
 - ✅ Settings partajate (WPF → ProgramData → Service)
 - ✅ Buton "Restart Service" în Settings dialog
+- ✅ **PACS Browser** — WebView2 integrat cu auto-login, auto-unlock, auto "Exclude Viewer"
+- ✅ **Descărcare ZIP din PACS** — interceptare, progres, extragere → studiu în Queue
+- ✅ **Rețele PACS** — editare/adăugare/ștergere/reordonare, parole DPAPI
+- ✅ **Traduceri PACS** — RO/RU/EN pentru toate textele browser PACS
 
 ### Configurare pe stația Siemens (face inginerul/administratorul):
 

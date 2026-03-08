@@ -132,6 +132,20 @@ public class StudyMonitorService : IDisposable
     /// Also cleans up tracking data for finished studies (Done/Error) to prevent memory accumulation.
     /// MUST be called from UI thread (DispatcherTimer) — avoids cross-thread race conditions.
     /// </summary>
+    /// <summary>
+    /// Force a study to Complete status immediately (skip timeout).
+    /// Used after PACS ZIP import where all files arrive at once.
+    /// </summary>
+    public void ForceCompleteStudy(string studyInstanceUid)
+    {
+        if (_studies.TryGetValue(studyInstanceUid, out var study) && study.Status == StudyStatus.Receiving)
+        {
+            study.Status = StudyStatus.Complete;
+            RecalculateStudySize(study);
+            StudyCompleted?.Invoke(this, new StudyCompletedEventArgs { Study = study });
+        }
+    }
+
     public void CheckAndCompleteStudies()
     {
         var now = DateTime.Now;

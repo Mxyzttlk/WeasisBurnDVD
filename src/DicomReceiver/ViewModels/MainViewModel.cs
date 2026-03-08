@@ -948,6 +948,122 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
             LogEntries.RemoveAt(0);
     }
 
+    /// <summary>Public wrapper for external log access (e.g. PacsViewModel).</summary>
+    public void AddLogExternal(string message)
+    {
+        _dispatcher.BeginInvoke(() => AddLog(message));
+    }
+
+    /// <summary>
+    /// Factory: creates PacsViewModel sharing the same services.
+    /// Called from MainWindow.xaml.cs on first PACS tab selection (lazy init).
+    /// </summary>
+    public PacsViewModel CreatePacsViewModel()
+    {
+        var projectRoot = FindProjectRoot();
+        var downloadFolder = Path.Combine(projectRoot, "downloads");
+        Directory.CreateDirectory(downloadFolder);
+
+        var incomingFolder = string.IsNullOrEmpty(_settings.IncomingFolder)
+            ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "incoming")
+            : _settings.IncomingFolder;
+
+        var downloadService = new PacsDownloadService(_monitorService, downloadFolder, incomingFolder);
+
+        downloadService.LogMessage += (_, msg) => _dispatcher.BeginInvoke(() => AddLog(msg));
+
+        downloadService.DownloadCompleted += (_, e) =>
+        {
+            _dispatcher.BeginInvoke(() =>
+            {
+                if (e.Success)
+                {
+                    AddLog($"PACS download processed: {e.FileName} ({e.SizeBytes / (1024.0 * 1024.0):F1} MB) — {e.ImageCount} images");
+                    ScanIncomingFolder();
+                }
+                else
+                {
+                    AddLog($"PACS download error: {e.Error}");
+                }
+            });
+        };
+
+        var pacsVm = new PacsViewModel(downloadService, _settings);
+
+        // Wire BURN DVD button — find study by UID and trigger burn
+        pacsVm.BurnRequested += async (_, studyUid) =>
+        {
+            await _dispatcher.InvokeAsync(async () =>
+            {
+                var study = Studies.FirstOrDefault(s => s.StudyInstanceUid == studyUid);
+                if (study != null && study.Status == StudyStatus.Complete)
+                {
+                    // Call BurnStudy directly (not via command) so we can await + notify PACS
+                    study.Status = StudyStatus.Burning;
+                    try
+                    {
+                        if (!await WaitForDisc(study))
+                        {
+                            study.Status = StudyStatus.Complete;
+                            pacsVm.OnBurnCompleted(false);
+                            return;
+                        }
+
+                        await _burnService.BurnStudyAsync(study, _settings);
+
+                        if (_settings.AutoDeleteAfterBurn && study.Status == StudyStatus.Done)
+                        {
+                            Studies.Remove(study);
+                            _monitorService.RemoveStudy(study.StudyInstanceUid);
+                            _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
+                            AddLog($"Auto-deleted: {study.PatientName}");
+                        }
+
+                        pacsVm.OnBurnCompleted(true);
+
+                        // Bring window to foreground after burn
+                        Application.Current?.MainWindow?.Activate();
+                    }
+                    catch (Exception ex)
+                    {
+                        study.Status = StudyStatus.Complete;
+                        study.StatusText = $"Error: {ex.Message}";
+                        AddLog($"Burn error: {ex.Message}");
+                        pacsVm.OnBurnCompleted(false);
+                    }
+                }
+                else if (study != null)
+                {
+                    AddLog($"Study not ready for burn: {study.PatientName} ({study.Status})");
+                    pacsVm.OnBurnCompleted(false);
+                }
+                else
+                {
+                    AddLog("Study not found in queue — try switching to DICOM Queue tab");
+                    pacsVm.OnBurnCompleted(false);
+                }
+            });
+        };
+
+        return pacsVm;
+    }
+
+    private static string FindProjectRoot()
+    {
+        // Walk up from exe directory to find project root (where scripts/ exists)
+        var dir = AppDomain.CurrentDomain.BaseDirectory;
+        for (int i = 0; i < 6; i++)
+        {
+            if (Directory.Exists(Path.Combine(dir, "scripts")))
+                return dir;
+            var parent = Directory.GetParent(dir);
+            if (parent == null) break;
+            dir = parent.FullName;
+        }
+        // Fallback
+        return @"E:\Weasis Burn";
+    }
+
     public void Shutdown()
     {
         _uiTimer.Stop();

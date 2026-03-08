@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace DicomReceiver.Models;
 
 public enum DicomPrivacyMode
@@ -9,13 +11,29 @@ public enum DicomPrivacyMode
 
 public class AppSettings
 {
+    // DICOM SCP settings
     public string AeTitle { get; set; } = "WEASIS_BURN";
     public int Port { get; set; } = 4006;
     public string IncomingFolder { get; set; } = "";
     public int StudyTimeoutSeconds { get; set; } = 30;
+
+    // Burn settings
     public int BurnSpeed { get; set; } = 4;
+    public string SelectedDriveId { get; set; } = ""; // empty = auto-detect
+
+    // General settings
     public string Language { get; set; } = "auto";
     public bool AutoDeleteAfterBurn { get; set; } = true;
     public int MaxStudiesKeep { get; set; } = 0; // 0 = unlimited
-    public string SelectedDriveId { get; set; } = ""; // empty = auto-detect
+
+    // PACS Browser settings
+    public List<PacsNetwork> PacsNetworks { get; set; } = new()
+    {
+        new PacsNetwork { Name = "External", Url = "http://imagistica.scr.md/portal/" },
+        new PacsNetwork { Name = "Internal", Url = "http://192.168.22.10/portal/" }
+    };
+    public int LastPacsNetworkIndex { get; set; } = 0;
+    public bool AutoLogin { get; set; } = true;
+    public bool AutoUnlock { get; set; } = true;
+    public bool AutoExcludeViewer { get; set; } = true;
 }

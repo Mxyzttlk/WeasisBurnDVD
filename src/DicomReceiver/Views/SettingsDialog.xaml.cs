@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Windows;
@@ -28,7 +29,16 @@ public partial class SettingsDialog : Window
             Language = settings.Language,
             AutoDeleteAfterBurn = settings.AutoDeleteAfterBurn,
             MaxStudiesKeep = settings.MaxStudiesKeep,
-            SelectedDriveId = settings.SelectedDriveId
+            SelectedDriveId = settings.SelectedDriveId,
+            // PACS Browser
+            PacsNetworks = settings.PacsNetworks.Select(n => new PacsNetwork
+            {
+                Name = n.Name, Url = n.Url, Username = n.Username, EncryptedPassword = n.EncryptedPassword
+            }).ToList(),
+            LastPacsNetworkIndex = settings.LastPacsNetworkIndex,
+            AutoLogin = settings.AutoLogin,
+            AutoUnlock = settings.AutoUnlock,
+            AutoExcludeViewer = settings.AutoExcludeViewer
         };
 
         ApplyLocalization();
@@ -68,6 +78,11 @@ public partial class SettingsDialog : Window
         ChkAutoDelete.IsChecked = Settings.AutoDeleteAfterBurn;
         TxtMaxStudies.Text = Settings.MaxStudiesKeep.ToString();
         UpdateMaxStudiesEnabled();
+
+        // PACS Browser checkboxes
+        ChkAutoLogin.IsChecked = Settings.AutoLogin;
+        ChkAutoUnlock.IsChecked = Settings.AutoUnlock;
+        ChkAutoExcludeViewer.IsChecked = Settings.AutoExcludeViewer;
     }
 
     private void ApplyLocalization()
@@ -89,6 +104,14 @@ public partial class SettingsDialog : Window
         BtnCancel.Content = L("Cancel");
         BtnRestartService.Content = L("RestartService");
         UpdateServiceButtonState();
+
+        // PACS Browser
+        LblPacsSection.Text = L("PacsSectionTitle");
+        LblAutoLogin.Text = L("AutoLogin") + ":";
+        LblAutoUnlock.Text = L("AutoUnlock") + ":";
+        LblAutoExcludeViewer.Text = L("AutoExcludeViewer") + ":";
+        LblEditNetworks.Text = L("PacsNetwork") + ":";
+        BtnEditNetworks.Content = L("EditNetworks");
     }
 
     private void RefreshDrives()
@@ -258,6 +281,11 @@ public partial class SettingsDialog : Window
 
         Settings.AutoDeleteAfterBurn = ChkAutoDelete.IsChecked == true;
 
+        // PACS Browser
+        Settings.AutoLogin = ChkAutoLogin.IsChecked == true;
+        Settings.AutoUnlock = ChkAutoUnlock.IsChecked == true;
+        Settings.AutoExcludeViewer = ChkAutoExcludeViewer.IsChecked == true;
+
         // MaxStudiesKeep only relevant when AutoDelete is OFF
         if (!Settings.AutoDeleteAfterBurn)
         {
@@ -338,6 +366,15 @@ public partial class SettingsDialog : Window
         {
             MessageBox.Show($"{L("ServiceRestartFailed")}: {ex.Message}", L("RestartService"),
                 MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void EditNetworks_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new PacsNetworkDialog(Settings.PacsNetworks) { Owner = this };
+        if (dialog.ShowDialog() == true)
+        {
+            Settings.PacsNetworks = dialog.Networks;
         }
     }
 

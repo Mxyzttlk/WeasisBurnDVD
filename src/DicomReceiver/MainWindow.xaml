@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:DicomReceiver.ViewModels"
         xmlns:helpers="clr-namespace:DicomReceiver.Helpers"
+        xmlns:views="clr-namespace:DicomReceiver.Views"
         Title="{Binding Title}"
         Width="1100" Height="700"
         MinWidth="900" MinHeight="500"
@@ -13,6 +14,54 @@
     <Window.DataContext>
         <vm:MainViewModel />
     </Window.DataContext>
+
+    <TabControl x:Name="MainTabControl" Background="{StaticResource BackgroundBrush}"
+                BorderThickness="0" Padding="0"
+                SelectionChanged="MainTabControl_SelectionChanged">
+        <TabControl.Resources>
+            <Style TargetType="TabItem">
+                <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+                <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+                <Setter Property="Padding" Value="16,8" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="TabItem">
+                            <Border x:Name="tabBorder" Background="{StaticResource SurfaceBrush}"
+                                    BorderBrush="Transparent" BorderThickness="0,0,0,2"
+                                    Padding="{TemplateBinding Padding}" Cursor="Hand">
+                                <ContentPresenter ContentSource="Header"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="tabBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+                                </Trigger>
+                                <MultiTrigger>
+                                    <MultiTrigger.Conditions>
+                                        <Condition Property="IsMouseOver" Value="True" />
+                                        <Condition Property="IsSelected" Value="False" />
+                                    </MultiTrigger.Conditions>
+                                    <Setter TargetName="tabBorder" Property="Background" Value="{StaticResource BorderBrush}" />
+                                </MultiTrigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </TabControl.Resources>
+
+        <!-- Tab 1: DICOM Queue -->
+        <TabItem x:Name="TabQueue">
+            <TabItem.Header>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                               VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBlock x:Name="TxtQueueTab" Text="DICOM Queue" />
+                </StackPanel>
+            </TabItem.Header>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -432,4 +481,18 @@
             </DockPanel>
         </Border>
     </Grid>
+        </TabItem>
+
+        <!-- Tab 2: PACS Browser -->
+        <TabItem x:Name="TabPacs">
+            <TabItem.Header>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                               VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBlock x:Name="TxtPacsTab" Text="PACS Browser" />
+                </StackPanel>
+            </TabItem.Header>
+            <views:PacsBrowserView x:Name="PacsBrowserView" />
+        </TabItem>
+    </TabControl>
 </Window>

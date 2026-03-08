@@ -10,6 +10,7 @@ namespace DicomReceiver;
 public partial class MainWindow : Window
 {
     private static string L(string key) => LocalizationHelper.Get(key);
+    private PacsViewModel? _pacsViewModel;
 
     public MainWindow()
     {
@@ -56,8 +57,33 @@ public partial class MainWindow : Window
             vm.UpdateSelectedStudiesInfo();
     }
 
+    private void MainTabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (e.Source != MainTabControl) return;
+
+        // Lazy-init PacsViewModel when PACS tab first selected
+        if (MainTabControl.SelectedItem == TabPacs && _pacsViewModel == null)
+        {
+            if (DataContext is MainViewModel mainVm)
+            {
+                _pacsViewModel = mainVm.CreatePacsViewModel();
+                PacsBrowserView.DataContext = _pacsViewModel;
+
+                // Route PACS log messages to shared log panel
+                _pacsViewModel.LogMessage += (s, msg) =>
+                {
+                    mainVm.AddLogExternal(msg);
+                };
+            }
+        }
+    }
+
     private void ApplyLocalization()
     {
+        // Tab headers
+        TxtQueueTab.Text = L("TabQueue");
+        TxtPacsTab.Text = L("TabPacs");
+
         // Toolbar
         TxtSettingsLabel.Text = L("Settings");
         BtnDeleteAll.Content = L("DeleteAll");
@@ -78,6 +104,8 @@ public partial class MainWindow : Window
 
     private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
     {
+        _pacsViewModel?.Dispose();
+
         if (DataContext is MainViewModel vm)
             vm.Shutdown();
     }
