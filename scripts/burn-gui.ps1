@@ -1350,13 +1350,18 @@ try {
 # ============================================================================
 $window.ShowDialog() | Out-Null
 
-# Cleanup runspace
-if ($script:workerRunspace) {
-    try { $script:workerRunspace.Close(); $script:workerRunspace.Dispose() } catch { }
+# CRITICAL: Force-terminate the process IMMEDIATELY with [Environment]::Exit()
+#
+# DO NOT attempt any runspace cleanup (Stop/Dispose/Close) before this!
+# PowerShell.Stop() BLOCKS waiting for the pipeline to finish — if the worker
+# thread is stuck in IMAPI2 Write() COM call, Stop() hangs forever and
+# [Environment]::Exit() never executes.
+#
+# [Environment]::Exit() is a hard process kill — terminates ALL threads instantly,
+# including the runspace thread blocked in COM. No cleanup needed.
+# This guarantees C#'s WaitForProcessOrKill() sees HasExited=true immediately.
+if ($syncHash.BurnSuccess -eq $true) {
+    [Environment]::Exit(0)
+} else {
+    [Environment]::Exit(1)
 }
-
-# Return non-zero exit code on burn failure — C# BurnService checks this
-# BurnSuccess = disc was physically burned (even if cleanup failed after)
-if ($syncHash.BurnSuccess) { exit 0 }
-if ($syncHash.Failed -or -not $syncHash.Success) { exit 1 }
-exit 0

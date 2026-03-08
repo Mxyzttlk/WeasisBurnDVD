@@ -292,6 +292,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         if (param is not ReceivedStudy study) return;
         if (study.Status != StudyStatus.Complete) return;
 
+        // Set Burning IMMEDIATELY (before any await) to prevent double-click race
+        study.Status = StudyStatus.Burning;
+
         try
         {
             // Pre-burn disc check — poll IMAPI2 for blank media (max 30 sec)
@@ -587,7 +590,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     private void DeleteStudy(object? param)
     {
         if (param is not ReceivedStudy study) return;
-        if (study.Status == StudyStatus.Burning) return; // Cannot delete during burn
+        if (study.Status == StudyStatus.Burning || study.Status == StudyStatus.Receiving) return;
 
         var result = MessageBox.Show(
             L("ConfirmDelete"),
@@ -628,7 +631,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         foreach (var study in Studies.ToList())
         {
-            if (study.Status == StudyStatus.Burning) continue; // Skip studies being burned
+            if (study.Status == StudyStatus.Burning || study.Status == StudyStatus.Receiving) continue;
             try
             {
                 if (Directory.Exists(study.StoragePath))

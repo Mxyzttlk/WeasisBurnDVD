@@ -207,10 +207,12 @@ public class BurnService
                 Log(string.Format(LocalizationHelper.Get(modeKey), privacyCount));
 
                 // Generate DICOMDIR AFTER privacy — metadata in DICOMDIR matches actual files
+                // Task.Run to avoid blocking UI thread (fo-dicom reads all DICOM headers)
                 Log("Generating DICOMDIR after privacy mode...");
                 var dir000 = Path.Combine(study.StoragePath, "DIR000");
                 var dicomdirAfterPrivacy = Path.Combine(study.StoragePath, "DICOMDIR");
-                prepResult.ImageRecordsAdded = TryGenerateDicomdirFoDicom(dir000, dicomdirAfterPrivacy, prepResult.Errors);
+                prepResult.ImageRecordsAdded = await Task.Run(() =>
+                    TryGenerateDicomdirFoDicom(dir000, dicomdirAfterPrivacy, prepResult.Errors));
                 if (prepResult.ImageRecordsAdded > 0)
                 {
                     prepResult.DicomdirSource = "fo-dicom";
@@ -268,29 +270,27 @@ public class BurnService
             };
 
             using var process = Process.Start(psi);
-            if (process != null)
-            {
-                await process.WaitForExitAsync();
+            if (process == null)
+                throw new InvalidOperationException("Failed to start burn process");
 
-                if (process.ExitCode == 0)
-                {
-                    study.Status = StudyStatus.Done;
-                    study.StatusText = "Burned";
-                    Log($"Burn completed: {study.PatientName}");
-                }
-                else
-                {
-                    // Burn failed — set back to Complete so user can retry
-                    // Files remain in DIR000/ layout — RestructureInPlace is idempotent
-                    // (skips DIR000 when scanning for series dirs, DICOMDIR regenerated on retry)
-                    study.Status = StudyStatus.Complete;
-                    study.StatusText = $"Burn failed (exit {process.ExitCode})";
-                    Log($"Burn failed with exit code {process.ExitCode} — study available for retry");
-                }
+            // Monitor: if user closed burn-gui window, PowerShell may hang on runspace cleanup.
+            // Check every 5 sec if the main window disappeared; if so, kill after 10 sec grace period.
+            await WaitForProcessOrKill(process);
+
+            if (process.ExitCode == 0)
+            {
+                study.Status = StudyStatus.Done;
+                study.StatusText = "Burned";
+                Log($"Burn completed: {study.PatientName}");
             }
             else
             {
-                throw new InvalidOperationException("Failed to start burn process");
+                // Burn failed — set back to Complete so user can retry
+                // Files remain in DIR000/ layout — RestructureInPlace is idempotent
+                // (skips DIR000 when scanning for series dirs, DICOMDIR regenerated on retry)
+                study.Status = StudyStatus.Complete;
+                study.StatusText = $"Burn failed (exit {process.ExitCode})";
+                Log($"Burn failed with exit code {process.ExitCode} — study available for retry");
             }
 
             // Cleanup study folder after successful burn
@@ -481,7 +481,7 @@ public class BurnService
             var dir000Path = Path.Combine(stagingDir, "DIR000");
             var dicomdirPath = Path.Combine(stagingDir, "DICOMDIR");
 
-            int imageRecords = TryGenerateDicomdirFoDicom(dir000Path, dicomdirPath, allErrors);
+            int imageRecords = await Task.Run(() => TryGenerateDicomdirFoDicom(dir000Path, dicomdirPath, allErrors));
             string dicomdirSource;
 
             if (imageRecords > 0)
@@ -543,7 +543,7 @@ public class BurnService
             if (process == null)
                 throw new InvalidOperationException("Failed to start burn process");
 
-            await process.WaitForExitAsync();
+            await WaitForProcessOrKill(process);
 
             if (process.ExitCode == 0)
             {
@@ -947,6 +947,9 @@ public class BurnService
             if (!exited)
             {
                 try { process.Kill(); } catch { }
+                process.WaitForExit(); // wait for kill to take effect + flush async readers
+                try { _ = stdoutTask.Result; } catch { }
+                try { _ = stderrTask.Result; } catch { }
                 errors.Add("dcmmkdir: timed out after 60 sec (killed)");
                 return false;
             }
@@ -1040,6 +1043,31 @@ public class BurnService
         if (File.Exists(knownPath)) return knownPath;
 
         return null;
+    }
+
+    /// <summary>
+    /// Waits for the burn process (burn-gui.ps1) to exit.
+    /// burn-gui.ps1 is launched with CreateNoWindow=true, so MainWindowHandle is always Zero —
+    /// we cannot detect window close via handle. Instead, rely on burn-gui.ps1's own cleanup
+    /// (workerCmd.Stop() on window close) and add a 60-minute safety timeout for truly stuck processes.
+    /// </summary>
+    private async Task WaitForProcessOrKill(Process process)
+    {
+        var maxWait = TimeSpan.FromMinutes(60);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        while (!process.HasExited)
+        {
+            await Task.Delay(3000);
+
+            if (sw.Elapsed > maxWait)
+            {
+                Log("Burn process exceeded 60-minute timeout — killing...");
+                try { process.Kill(); } catch { }
+                await Task.Delay(500);
+                return;
+            }
+        }
     }
 
     private static string? FindProjectRoot()
