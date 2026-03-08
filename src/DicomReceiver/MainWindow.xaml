@@ -86,11 +86,11 @@
                         </Button.Template>
                     </Button>
 
-                    <!-- Hide All toggle for ALL selected studies (visible when studies selected) -->
+                    <!-- Hide All toggle for ALL selected studies — HIDDEN (use Anonymize instead) -->
                     <Button Command="{Binding ToggleHideAllSelectedCommand}"
                             ToolTip="{Binding HideAllTooltip}"
                             Width="30" Height="30" Margin="0,0,6,0"
-                            Visibility="{Binding HasSelectedStudies, Converter={StaticResource BoolToVisibilityConverter}}">
+                            Visibility="Collapsed">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Grid>
@@ -321,11 +321,12 @@
                                     </Button.Template>
                                 </Button>
 
-                                <!-- Hide All toggle (circle) per study -->
+                                <!-- Hide All toggle (circle) per study — HIDDEN (use Anonymize instead) -->
                                 <Button Command="{Binding DataContext.ToggleHideAllStudyCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                         CommandParameter="{Binding}"
                                         ToolTip="{Binding DataContext.HideAllTooltip, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                        Width="24" Height="24" Margin="0,0,6,0">
+                                        Width="24" Height="24" Margin="0,0,6,0"
+                                        Visibility="Collapsed">
                                     <Button.Template>
                                         <ControlTemplate TargetType="Button">
                                             <Grid>
