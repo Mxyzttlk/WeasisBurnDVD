@@ -73,6 +73,13 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         set => SetProperty(ref _hasSelectedStudies, value);
     }
 
+    private bool _hasMultipleSelectedStudies;
+    public bool HasMultipleSelectedStudies
+    {
+        get => _hasMultipleSelectedStudies;
+        set => SetProperty(ref _hasMultipleSelectedStudies, value);
+    }
+
     public event EventHandler? LanguageChanged;
     public event EventHandler? RequestClearSelection;
 
@@ -406,6 +413,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         }
 
         HasSelectedStudies = count > 0;
+        HasMultipleSelectedStudies = count > 1;
 
         // Toolbar privacy buttons: active only when ALL selected Complete studies have that mode
         SelectedAnonymizeActive = count > 0 && anonymizeCount == count;

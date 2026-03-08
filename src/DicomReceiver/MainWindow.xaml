@@ -57,11 +57,11 @@
                 <StackPanel Orientation="Horizontal" Margin="10,0">
                     <Separator Style="{StaticResource {x:Static ToolBar.SeparatorStyleKey}}" Margin="4,2" />
 
-                    <!-- Anonymize toggle for ALL selected studies (visible when studies selected) -->
+                    <!-- Anonymize toggle for ALL selected studies (visible when multiple studies selected) -->
                     <Button Command="{Binding ToggleAnonymizeSelectedCommand}"
                             ToolTip="{Binding AnonymizeTooltip}"
                             Width="30" Height="30" Margin="0,0,3,0"
-                            Visibility="{Binding HasSelectedStudies, Converter={StaticResource BoolToVisibilityConverter}}">
+                            Visibility="{Binding HasMultipleSelectedStudies, Converter={StaticResource BoolToVisibilityConverter}}">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Grid>
