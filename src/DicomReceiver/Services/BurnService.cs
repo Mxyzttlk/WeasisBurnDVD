@@ -1033,6 +1033,13 @@ public class BurnService
         (DicomTag.PatientBirthDate, ""),        // VR=DA, can't hold text
         (DicomTag.StudyDate, ""),                // VR=DA
         (DicomTag.StudyTime, ""),                // VR=TM
+        (DicomTag.SeriesDate, ""),
+        (DicomTag.SeriesTime, ""),
+        (DicomTag.AcquisitionDate, ""),
+        (DicomTag.AcquisitionTime, ""),
+        (DicomTag.ContentDate, ""),
+        (DicomTag.ContentTime, ""),
+        (DicomTag.AcquisitionDateTime, ""),
         (DicomTag.AccessionNumber, "Anonymous"),
         (DicomTag.OtherPatientIDsSequence, null), // null = remove tag entirely
     };
@@ -1054,9 +1061,16 @@ public class BurnService
         DicomTag.OtherPatientIDsSequence,
         DicomTag.EthnicGroup,
         DicomTag.PatientComments,
-        // Study info
+        // Study/Series/Acquisition dates and times
         DicomTag.StudyDate,
         DicomTag.StudyTime,
+        DicomTag.SeriesDate,
+        DicomTag.SeriesTime,
+        DicomTag.AcquisitionDate,
+        DicomTag.AcquisitionTime,
+        DicomTag.ContentDate,
+        DicomTag.ContentTime,
+        DicomTag.AcquisitionDateTime,
         DicomTag.StudyDescription,
         DicomTag.AccessionNumber,
         DicomTag.StudyID,
@@ -1069,8 +1083,7 @@ public class BurnService
         DicomTag.InstitutionName,
         DicomTag.InstitutionalDepartmentName,
         DicomTag.StationName,
-        // Series text (keep SeriesInstanceUID, Modality, Number)
-        DicomTag.SeriesDescription,
+        // Series text (keep SeriesInstanceUID, Modality, Number, SeriesDescription)
         DicomTag.ProtocolName,
     };
 
