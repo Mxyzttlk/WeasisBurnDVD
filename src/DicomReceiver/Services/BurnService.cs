@@ -91,16 +91,17 @@ public class BurnService
             //   0 = UNKNOWN (no disc / not readable)
             //   1 = OVERWRITE_ONLY         (DVD+RW, BD-RE — writable)
             //   2 = RANDOMLY_WRITABLE      (blank disc — what we want)
-            //   4 = APPENDABLE             (multi-session, has data)
+            //   4 = APPENDABLE             (multi-session, can add data)
             //   32768 = NON_EMPTY_SESSION  (already burned, not blank)
             //   16384 = ERASE_REQUIRED     (needs erase before use)
-            // We want: blank (2) OR overwrite-ready (1) — reject non-blank media
-            // Bits 4 (APPENDABLE) and 32768 (NON_EMPTY_SESSION) indicate non-blank disc
+            // Blank DVD+R has BOTH bits 2+4 set (mediaState=6): writable AND appendable
+            // We accept: any disc with RANDOMLY_WRITABLE(2) or OVERWRITE_ONLY(1) bit set
+            // We reject: APPENDABLE-only (4 without 2 = has data), NON_EMPTY_SESSION, ERASE_REQUIRED
             int mediaState = (int)format.CurrentMediaStatus;
             bool isBlankOrWritable = mediaState != 0
+                && ((mediaState & 2) != 0 || (mediaState & 1) != 0)  // must be writable (blank or DVD+RW)
                 && (mediaState & 32768) == 0  // NOT non-empty session
-                && (mediaState & 16384) == 0  // NOT erase-required (needs format first)
-                && (mediaState & 4) == 0;     // NOT appendable (already has data, multi-session)
+                && (mediaState & 16384) == 0; // NOT erase-required (needs format first)
 
             return (isBlankOrWritable, driveName);
         }
