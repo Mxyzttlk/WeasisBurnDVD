@@ -107,7 +107,8 @@
       "Bash(git rm --cached nul)",
       "Bash(git add .gitignore src/DicomReceiver/App.xaml src/DicomReceiver/Helpers/LocalizationHelper.cs src/DicomReceiver/MainWindow.xaml src/DicomReceiver/MainWindow.xaml.cs src/DicomReceiver/Models/AppSettings.cs src/DicomReceiver/Models/ReceivedStudy.cs src/DicomReceiver/Services/BurnService.cs src/DicomReceiver/Services/DicomScpService.cs src/DicomReceiver/ViewModels/MainViewModel.cs)",
       "Bash(taskkill /F /IM DicomReceiver.exe)",
-      "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj -c Debug)"
+      "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj -c Debug)",
+      "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj -c Release)"
     ]
   }
 }

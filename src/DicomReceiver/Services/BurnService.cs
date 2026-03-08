@@ -99,7 +99,8 @@ public class BurnService
             int mediaState = (int)format.CurrentMediaStatus;
             bool isBlankOrWritable = mediaState != 0
                 && (mediaState & 32768) == 0  // NOT non-empty session
-                && (mediaState & 16384) == 0; // NOT erase-required (needs format first)
+                && (mediaState & 16384) == 0  // NOT erase-required (needs format first)
+                && (mediaState & 4) == 0;     // NOT appendable (already has data, multi-session)
 
             return (isBlankOrWritable, driveName);
         }
@@ -182,7 +183,11 @@ public class BurnService
             study.StatusText = "Preparing...";
             Log("Restructuring DICOM folder in-place (DIR000 layout)...");
 
-            var prepResult = await Task.Run(() => RestructureInPlace(study.StoragePath, projectRoot));
+            // If privacy mode is active, skip DICOMDIR during restructure —
+            // generate it AFTER privacy so DICOMDIR matches the actual file metadata
+            bool hasPrivacy = study.PrivacyMode != DicomPrivacyMode.None;
+            var prepResult = await Task.Run(() => RestructureInPlace(
+                study.StoragePath, projectRoot, generateDicomdir: !hasPrivacy));
 
             Log($"Moved {prepResult.FilesCopied} files in {prepResult.SeriesCount} series to DIR000/");
 
@@ -193,12 +198,35 @@ public class BurnService
 
             // Apply privacy mode (Anonymize / HideAll) BEFORE DICOMDIR generation
             // Per-study: each study has its own PrivacyMode toggle
-            if (study.PrivacyMode != DicomPrivacyMode.None)
+            if (hasPrivacy)
             {
                 var dir000Path = Path.Combine(study.StoragePath, "DIR000");
                 var privacyCount = await Task.Run(() => ApplyPrivacyMode(dir000Path, study.PrivacyMode));
                 var modeKey = study.PrivacyMode == DicomPrivacyMode.Anonymize ? "AnonymizeApplied" : "HideAllApplied";
                 Log(string.Format(LocalizationHelper.Get(modeKey), privacyCount));
+
+                // Generate DICOMDIR AFTER privacy — metadata in DICOMDIR matches actual files
+                Log("Generating DICOMDIR after privacy mode...");
+                var dir000 = Path.Combine(study.StoragePath, "DIR000");
+                var dicomdirAfterPrivacy = Path.Combine(study.StoragePath, "DICOMDIR");
+                prepResult.ImageRecordsAdded = TryGenerateDicomdirFoDicom(dir000, dicomdirAfterPrivacy, prepResult.Errors);
+                if (prepResult.ImageRecordsAdded > 0)
+                {
+                    prepResult.DicomdirSource = "fo-dicom";
+                }
+                else
+                {
+                    var dcmmkdirPath = FindDcmmkdir(projectRoot);
+                    if (dcmmkdirPath != null && TryGenerateDicomdirDcmtk(dcmmkdirPath, study.StoragePath, dicomdirAfterPrivacy, prepResult.Errors))
+                    {
+                        prepResult.DicomdirSource = "dcmmkdir";
+                        prepResult.ImageRecordsAdded = prepResult.FilesCopied;
+                    }
+                    else
+                    {
+                        prepResult.DicomdirSource = "FAILED";
+                    }
+                }
             }
 
             var dicomdirPath = Path.Combine(study.StoragePath, "DICOMDIR");
@@ -284,7 +312,7 @@ public class BurnService
         }
         catch (Exception ex)
         {
-            study.Status = StudyStatus.Error;
+            study.Status = StudyStatus.Complete; // retryable — user can click Burn again
             study.StatusText = $"Error: {ex.Message}";
             Log($"Burn error: {ex.Message}");
         }
@@ -613,10 +641,10 @@ public class BurnService
             }
             else
             {
-                // No files were moved (error happened before restructuring) — safe cleanup
+                // No files were moved (error happened before restructuring) — retryable
                 foreach (var study in studies)
                 {
-                    study.Status = StudyStatus.Error;
+                    study.Status = StudyStatus.Complete; // retryable — no files were moved
                     study.StatusText = $"Error: {ex.Message}";
                 }
 
@@ -665,7 +693,7 @@ public class BurnService
     /// <param name="stagingDir">If set, move files to stagingDir/DIR000/ instead of studyPath/DIR000/ (multi-study)</param>
     /// <param name="seriesOffset">Starting series number (for multi-study continuous numbering)</param>
     private PrepareResult RestructureInPlace(string studyPath, string? projectRoot,
-        string? stagingDir = null, int seriesOffset = 0)
+        string? stagingDir = null, int seriesOffset = 0, bool generateDicomdir = true)
     {
         var result = new PrepareResult();
 
@@ -700,7 +728,8 @@ public class BurnService
             {
                 var fileName = fileNum.ToString("D8") + ".DCM"; // Keep .DCM like PACS
                 var destPath = Path.Combine(destSeriesDir, fileName);
-                File.Move(file.FullName, destPath);
+                // overwrite: true prevents IOException if partial restructure left files behind
+                File.Move(file.FullName, destPath, overwrite: true);
                 result.FilesCopied++;
                 fileNum++;
             }
@@ -730,7 +759,7 @@ public class BurnService
             {
                 var fileName = fileNum.ToString("D8") + ".DCM";
                 var destPath = Path.Combine(destSeriesDir, fileName);
-                File.Move(file.FullName, destPath);
+                File.Move(file.FullName, destPath, overwrite: true);
                 result.FilesCopied++;
                 fileNum++;
             }
@@ -761,7 +790,7 @@ public class BurnService
 
                         foreach (var file in files)
                         {
-                            File.Move(file.FullName, Path.Combine(destSeriesDir, file.Name));
+                            File.Move(file.FullName, Path.Combine(destSeriesDir, file.Name), overwrite: true);
                             result.FilesCopied++;
                         }
                         try { srcSeriesDir.Delete(); } catch { }
@@ -784,8 +813,8 @@ public class BurnService
         // Step 2: Generate DICOMDIR — fo-dicom first, dcmmkdir fallback
         // (skipped in multi-study mode — caller generates DICOMDIR after all studies merged)
         // ============================================================
-        if (stagingDir != null)
-            return result; // Multi-study: DICOMDIR generated by caller after merging all studies
+        if (stagingDir != null || !generateDicomdir)
+            return result; // Multi-study or privacy-first: DICOMDIR generated by caller
 
         var dicomdirPath = Path.Combine(outputRoot, "DICOMDIR");
 
@@ -908,7 +937,9 @@ public class BurnService
                 return false;
             }
 
-            // Read stderr async to prevent deadlock (buffer full blocks process)
+            // Read BOTH stdout and stderr async to prevent deadlock
+            // (if either buffer fills up ~4KB, process blocks forever)
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
             var stderrTask = process.StandardError.ReadToEndAsync();
             var exited = process.WaitForExit(60_000); // 60 sec timeout
 
@@ -919,6 +950,7 @@ public class BurnService
                 return false;
             }
 
+            _ = stdoutTask.Result; // discard stdout, just prevent deadlock
             var stderr = stderrTask.Result;
             if (process.ExitCode != 0)
             {
@@ -963,7 +995,7 @@ public class BurnService
 
                 foreach (var file in Directory.GetFiles(srcSeriesDir))
                 {
-                    File.Move(file, Path.Combine(dstSeriesDir, Path.GetFileName(file)));
+                    File.Move(file, Path.Combine(dstSeriesDir, Path.GetFileName(file)), overwrite: true);
                 }
 
                 try { Directory.Delete(srcSeriesDir); } catch { }
@@ -972,13 +1004,25 @@ public class BurnService
             Log($"Restored: {study.PatientName} — files moved back to {study.StoragePath}");
         }
 
-        // Delete now-empty staging folder
+        // Delete staging folder ONLY if no DICOM files remain (safety check).
+        // If a study's RestructureInPlace partially moved files but its range was never
+        // recorded (exception during merge), those orphaned files must be preserved.
         try
         {
             if (Directory.Exists(stagingDir))
-                Directory.Delete(stagingDir, true);
+            {
+                var remainingDcm = Directory.EnumerateFiles(stagingDir, "*.DCM", SearchOption.AllDirectories).Any();
+                if (!remainingDcm)
+                {
+                    Directory.Delete(stagingDir, true);
+                }
+                else
+                {
+                    Log($"WARNING: staging folder has unreferenced DICOM files, preserved: {stagingDir}");
+                }
+            }
         }
-        catch { /* staging may have DICOMDIR remnants — non-critical */ }
+        catch { /* non-critical */ }
     }
 
     private static string? FindDcmmkdir(string? projectRoot)

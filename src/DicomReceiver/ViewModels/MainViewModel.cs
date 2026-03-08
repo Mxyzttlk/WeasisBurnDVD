@@ -150,7 +150,12 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
                 var study = _monitorService.Studies
                     .FirstOrDefault(st => st.StudyInstanceUid == e.StudyInstanceUid);
                 if (study != null && !Studies.Contains(study))
+                {
                     Studies.Insert(0, study);
+                    // Mark folder as known so ScanIncomingFolder() won't re-process it
+                    if (!string.IsNullOrEmpty(study.StoragePath))
+                        _knownStudyDirs.Add(Path.GetFileName(study.StoragePath));
+                }
             });
         };
 
@@ -287,18 +292,27 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         if (param is not ReceivedStudy study) return;
         if (study.Status != StudyStatus.Complete) return;
 
-        // Pre-burn disc check — poll IMAPI2 for blank media (max 30 sec)
-        if (!await WaitForDisc(study)) return;
-
-        await _burnService.BurnStudyAsync(study, _settings);
-
-        // Auto-delete from queue after successful burn
-        if (_settings.AutoDeleteAfterBurn && study.Status == StudyStatus.Done)
+        try
         {
-            Studies.Remove(study);
-            _monitorService.RemoveStudy(study.StudyInstanceUid);
-            _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
-            AddLog($"Auto-deleted: {study.PatientName}");
+            // Pre-burn disc check — poll IMAPI2 for blank media (max 30 sec)
+            if (!await WaitForDisc(study)) return;
+
+            await _burnService.BurnStudyAsync(study, _settings);
+
+            // Auto-delete from queue after successful burn
+            if (_settings.AutoDeleteAfterBurn && study.Status == StudyStatus.Done)
+            {
+                Studies.Remove(study);
+                _monitorService.RemoveStudy(study.StudyInstanceUid);
+                _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
+                AddLog($"Auto-deleted: {study.PatientName}");
+            }
+        }
+        catch (Exception ex)
+        {
+            study.Status = StudyStatus.Complete; // retryable
+            study.StatusText = $"Error: {ex.Message}";
+            AddLog($"Burn error: {ex.Message}");
         }
     }
 
@@ -310,49 +324,67 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         if (selected.Count == 0) return;
 
-        // Confirm multi-burn
-        var totalSizeMB = selected.Sum(s => s.TotalSizeBytes) / (1024.0 * 1024.0);
-        var patients = selected.Select(s => s.PatientName).Distinct().ToList();
-        var label = patients.Count == 1 ? patients[0] : L("MultiplePatientsLabel");
-
-        var msg = string.Format(L("ConfirmBurnMultiple"), selected.Count, $"{totalSizeMB:F1} MB", label);
-        var result = MessageBox.Show(msg, L("BurnSelected"),
-            MessageBoxButton.YesNo, MessageBoxImage.Question);
-
-        if (result != MessageBoxResult.Yes) return;
-
-        // Pre-burn disc check — poll IMAPI2 for blank media (max 30 sec)
-        // Use first selected study for status display
-        if (!await WaitForDisc(selected[0])) return;
-
-        // Clear DataGrid selection before burning (prevents re-click)
-        RequestClearSelection?.Invoke(this, EventArgs.Empty);
-
-        await _burnService.BurnMultipleStudiesAsync(selected, _settings);
-
-        // Auto-delete burned studies from queue
-        if (_settings.AutoDeleteAfterBurn)
+        try
         {
-            foreach (var study in selected.Where(s => s.Status == StudyStatus.Done))
+            // Confirm multi-burn
+            var totalSizeMB = selected.Sum(s => s.TotalSizeBytes) / (1024.0 * 1024.0);
+            var patients = selected.Select(s => s.PatientName).Distinct().ToList();
+            var label = patients.Count == 1 ? patients[0] : L("MultiplePatientsLabel");
+
+            var msg = string.Format(L("ConfirmBurnMultiple"), selected.Count, $"{totalSizeMB:F1} MB", label);
+            var result = MessageBox.Show(msg, L("BurnSelected"),
+                MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            // Pre-burn disc check — poll IMAPI2 for blank media (max 30 sec)
+            // Pass ALL selected studies so they all get Burning status (prevents AutoPurge/deletion)
+            if (!await WaitForDisc(selected)) return;
+
+            // Clear DataGrid selection before burning (prevents re-click)
+            RequestClearSelection?.Invoke(this, EventArgs.Empty);
+
+            await _burnService.BurnMultipleStudiesAsync(selected, _settings);
+
+            // Auto-delete burned studies from queue
+            if (_settings.AutoDeleteAfterBurn)
             {
-                Studies.Remove(study);
-                _monitorService.RemoveStudy(study.StudyInstanceUid);
-                _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
-                AddLog($"Auto-deleted: {study.PatientName}");
+                foreach (var study in selected.Where(s => s.Status == StudyStatus.Done))
+                {
+                    Studies.Remove(study);
+                    _monitorService.RemoveStudy(study.StudyInstanceUid);
+                    _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
+                    AddLog($"Auto-deleted: {study.PatientName}");
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            foreach (var study in selected.Where(s => s.Status == StudyStatus.Burning))
+            {
+                study.Status = StudyStatus.Complete; // retryable
+                study.StatusText = L("Complete");
+            }
+            AddLog($"Burn error: {ex.Message}");
         }
     }
 
     /// <summary>
     /// Polls IMAPI2 for blank disc every 2 seconds (max 30 sec).
     /// Shows "Waiting for disc..." in study StatusText during polling.
-    /// Returns true if disc detected, false if timeout (study reverts to Complete).
+    /// Returns true if disc detected, false if timeout (studies revert to Complete).
+    /// Marks ALL passed studies as Burning to prevent AutoPurge/deletion during wait.
     /// </summary>
-    private async Task<bool> WaitForDisc(ReceivedStudy study)
+    private async Task<bool> WaitForDisc(ReceivedStudy study) => await WaitForDisc(new List<ReceivedStudy> { study });
+
+    private async Task<bool> WaitForDisc(List<ReceivedStudy> studies)
     {
-        var previousStatus = study.Status;
-        study.Status = StudyStatus.Burning;
-        study.StatusText = L("WaitingForDisc");
+        // Mark ALL studies as Burning — prevents AutoPurge and user deletion during wait
+        foreach (var s in studies)
+        {
+            s.Status = StudyStatus.Burning;
+            s.StatusText = L("WaitingForDisc");
+        }
         AddLog(L("WaitingForDisc"));
 
         bool discReady = false;
@@ -366,7 +398,8 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
             // Update status with countdown
             var remaining = (15 - i) * 2;
-            study.StatusText = $"{L("WaitingForDisc")} ({remaining}s)";
+            foreach (var s in studies)
+                s.StatusText = $"{L("WaitingForDisc")} ({remaining}s)";
 
             await Task.Delay(2000);
         }
@@ -375,13 +408,16 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         {
             var msg = string.Format(L("DiscDetected"), driveName);
             AddLog(msg);
-            // Status stays Burning — BurnStudyAsync will continue
+            // Status stays Burning — BurnStudyAsync/BurnMultipleStudiesAsync will continue
             return true;
         }
 
-        // Timeout — revert to Complete for retry
-        study.Status = StudyStatus.Complete;
-        study.StatusText = string.Format(L("DiscNotFound"), driveName);
+        // Timeout — revert ALL studies to Complete for retry
+        foreach (var s in studies)
+        {
+            s.Status = StudyStatus.Complete;
+            s.StatusText = string.Format(L("DiscNotFound"), driveName);
+        }
         AddLog(string.Format(L("DiscNotFound"), driveName));
         return false;
     }
@@ -551,6 +587,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     private void DeleteStudy(object? param)
     {
         if (param is not ReceivedStudy study) return;
+        if (study.Status == StudyStatus.Burning) return; // Cannot delete during burn
 
         var result = MessageBox.Show(
             L("ConfirmDelete"),
@@ -591,17 +628,17 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         foreach (var study in Studies.ToList())
         {
+            if (study.Status == StudyStatus.Burning) continue; // Skip studies being burned
             try
             {
                 if (Directory.Exists(study.StoragePath))
                     Directory.Delete(study.StoragePath, true);
             }
             catch { }
+            Studies.Remove(study);
             _monitorService.RemoveStudy(study.StudyInstanceUid);
             _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
         }
-
-        Studies.Clear();
         AddLog(L("DeleteAll"));
     }
 

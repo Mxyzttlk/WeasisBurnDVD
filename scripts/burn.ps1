@@ -116,6 +116,14 @@ function Test-WeasisPortable {
 
 function Clear-Staging {
     if (Test-Path $DiscStaging) {
+        # CRITICAL: remove junctions BEFORE recursive delete!
+        # Previous failed burn may have left junctions to tools/weasis-portable/
+        # Remove-Item -Recurse follows junctions and deletes SOURCE files
+        try {
+            Get-ChildItem -Path $DiscStaging -Recurse -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
+                ForEach-Object { cmd /c "rmdir `"$($_.FullName)`"" 2>$null }
+        } catch {}
         Remove-Item -Recurse -Force $DiscStaging
     }
     New-Item -ItemType Directory -Path $DiscStaging -Force | Out-Null
@@ -893,7 +901,9 @@ public class DriveEject {
                 try {
                     $fallbackRec = New-Object -ComObject IMAPI2.MsftDiscRecorder2
                     $fallbackRec.InitializeDiscRecorder($script:selectedDriveId)
+                    $fallbackRec.DisableMcn()
                     $fallbackRec.EjectMedia()
+                    $fallbackRec.EnableMcn()
                     [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fallbackRec) | Out-Null
                 } catch {}
             }

@@ -495,7 +495,17 @@ $workerScript = {
         # ======== STEP 2: CLEAN STAGING ========
         UpdateStatus ($s.StepClean)
         Log ">>> $($s.StepClean)" 6
-        if (Test-Path $discStaging) { Remove-Item -Recurse -Force $discStaging }
+        if (Test-Path $discStaging) {
+            # CRITICAL: remove junctions BEFORE recursive delete!
+            # Previous failed burn may have left junctions to tools/weasis-portable/
+            # Remove-Item -Recurse follows junctions and deletes SOURCE files
+            try {
+                Get-ChildItem -Path $discStaging -Recurse -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
+                    ForEach-Object { cmd /c "rmdir `"$($_.FullName)`"" 2>$null }
+            } catch {}
+            Remove-Item -Recurse -Force $discStaging
+        }
         New-Item -ItemType Directory -Path $discStaging -Force | Out-Null
         New-Item -ItemType Directory -Path $contentDir -Force | Out-Null
         Log "[OK] Staging: $discStaging" 8
@@ -1098,7 +1108,9 @@ public class DriveEject {
                         try {
                             $fallbackRec = New-Object -ComObject IMAPI2.MsftDiscRecorder2
                             $fallbackRec.InitializeDiscRecorder($sync.DriveId)
+                            $fallbackRec.DisableMcn()
                             $fallbackRec.EjectMedia()
+                            $fallbackRec.EnableMcn()
                             [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fallbackRec) | Out-Null
                         } catch {}
                     }
