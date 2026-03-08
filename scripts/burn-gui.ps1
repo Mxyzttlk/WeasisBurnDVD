@@ -1045,7 +1045,26 @@ $workerScript = {
                 [GC]::Collect()
                 [GC]::WaitForPendingFinalizers()
 
-                # Eject via Win32 (LOCK → DISMOUNT → EJECT) — no IMAPI2, no Shell notification
+                # Start background dialog killer BEFORE eject (catches "Insert disc" within ~150ms)
+                try {
+                    $killerScript = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "dialog-killer-$PID.ps1")
+                    @'
+for($i=0;$i -lt 60;$i++){
+    try{
+        $w=New-Object -ComObject WScript.Shell
+        foreach($t in @("Insert disc","Insert a disc","Introduceti un disc","Introduceți un disc")){
+            if($w.AppActivate($t)){Start-Sleep -Milliseconds 80;$w.SendKeys("{ESCAPE}")}
+        }
+        [void][Runtime.InteropServices.Marshal]::ReleaseComObject($w)
+    }catch{}
+    Start-Sleep -Milliseconds 150
+}
+try{Remove-Item $MyInvocation.MyCommand.Path -Force}catch{}
+'@ | Set-Content -Path $killerScript -Encoding ASCII
+                    Start-Process powershell -ArgumentList "-NoProfile","-WindowStyle","Hidden","-ExecutionPolicy","Bypass","-File",$killerScript -WindowStyle Hidden
+                } catch {}
+
+                # Eject via Win32 (LOCK → DISMOUNT → EJECT)
                 UpdateStatus ($s.Ejecting)
                 Log "[..] $($s.Ejecting)" 95
                 if ($ejectDrive) {
@@ -1076,7 +1095,6 @@ public class DriveEject {
                         }
                         [DriveEject]::Eject($ejectDrive)
                     } catch {
-                        # Fallback: IMAPI2 eject (re-create recorder)
                         try {
                             $fallbackRec = New-Object -ComObject IMAPI2.MsftDiscRecorder2
                             $fallbackRec.InitializeDiscRecorder($sync.DriveId)
@@ -1326,5 +1344,7 @@ if ($script:workerRunspace) {
 }
 
 # Return non-zero exit code on burn failure — C# BurnService checks this
-if ($sync.Failed -or -not $sync.Success) { exit 1 }
+# BurnSuccess = disc was physically burned (even if cleanup failed after)
+if ($syncHash.BurnSuccess) { exit 0 }
+if ($syncHash.Failed -or -not $syncHash.Success) { exit 1 }
 exit 0
