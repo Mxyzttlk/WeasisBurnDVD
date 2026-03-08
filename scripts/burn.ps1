@@ -839,24 +839,29 @@ function Burn-ToDisc {
         # Eject
         $recorder.EjectMedia()
 
-        # Re-enable MCN and release recorder
-        try { $recorder.EnableMcn() } catch {}
+        # Release recorder WITHOUT re-enabling MCN (EnableMcn triggers Windows "Insert disc" dialog)
+        # MCN is re-enabled automatically when COM object is released/GC'd
         try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($recorder) | Out-Null } catch {}
         [GC]::Collect()
         [GC]::WaitForPendingFinalizers()
 
-        # Close Windows "Insert disc" dialog if it appears after eject
+        # Fallback: close Windows "Insert disc" dialog if it still appears
         Start-Sleep -Seconds 2
-        try {
-            $wsh = New-Object -ComObject WScript.Shell
-            foreach ($dlgTitle in @("Insert disc", "Introduceti un disc", "Introduceți un disc")) {
-                if ($wsh.AppActivate($dlgTitle)) {
-                    Start-Sleep -Milliseconds 300
-                    $wsh.SendKeys("{ESCAPE}")
-                    break
+        $dialogTitles = @("Insert disc", "Insert a disc", "Introduceti un disc", "Introduceți un disc", "Datenträger einlegen")
+        for ($attempt = 0; $attempt -lt 3; $attempt++) {
+            try {
+                $wsh = New-Object -ComObject WScript.Shell
+                foreach ($dlgTitle in $dialogTitles) {
+                    if ($wsh.AppActivate($dlgTitle)) {
+                        Start-Sleep -Milliseconds 200
+                        $wsh.SendKeys("{ESCAPE}")
+                        break
+                    }
                 }
-            }
-        } catch {}
+                [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wsh) | Out-Null
+            } catch {}
+            Start-Sleep -Seconds 1
+        }
 
         Write-Ok "DISC ARDS CU SUCCES!"
         $script:burnSuccess = $true
@@ -869,7 +874,6 @@ function Burn-ToDisc {
         try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($result) | Out-Null } catch {}
         try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fsImage) | Out-Null } catch {}
         try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($discFormat) | Out-Null } catch {}
-        try { $recorder.EnableMcn() } catch {}
         try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($recorder) | Out-Null } catch {}
         [GC]::Collect()
 
