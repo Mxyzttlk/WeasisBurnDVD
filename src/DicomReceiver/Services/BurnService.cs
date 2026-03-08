@@ -737,6 +737,46 @@ public class BurnService
             seriesNum++;
         }
 
+        // Handle already-restructured studies (files already in DIR000/ from previous burn/restore)
+        if (result.FilesCopied == 0)
+        {
+            var existingDir000 = Path.Combine(studyPath, "DIR000");
+            if (Directory.Exists(existingDir000))
+            {
+                var existingSeries = new DirectoryInfo(existingDir000).GetDirectories()
+                    .OrderBy(d => d.Name)
+                    .ToArray();
+
+                foreach (var srcSeriesDir in existingSeries)
+                {
+                    var files = srcSeriesDir.GetFiles("*", SearchOption.TopDirectoryOnly);
+                    if (files.Length == 0) continue;
+
+                    if (stagingDir != null)
+                    {
+                        // Multi-study: move files to staging DIR000/ with series offset
+                        var destSeriesName = seriesNum.ToString("D8");
+                        var destSeriesDir = Path.Combine(dir000, destSeriesName);
+                        Directory.CreateDirectory(destSeriesDir);
+
+                        foreach (var file in files)
+                        {
+                            File.Move(file.FullName, Path.Combine(destSeriesDir, file.Name));
+                            result.FilesCopied++;
+                        }
+                        try { srcSeriesDir.Delete(); } catch { }
+                    }
+                    else
+                    {
+                        // Single-study: files already in place, just count
+                        result.FilesCopied += files.Length;
+                    }
+
+                    seriesNum++;
+                }
+            }
+        }
+
         result.SeriesCount = seriesNum - seriesOffset;
         result.NextSeriesOffset = seriesNum;
 

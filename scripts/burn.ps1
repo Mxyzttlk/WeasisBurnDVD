@@ -836,32 +836,32 @@ function Burn-ToDisc {
         # Disable Media Change Notification before eject (prevents Windows from showing "Insert disc")
         try { $recorder.DisableMcn() } catch {}
 
+        # Start background dialog killer BEFORE eject (catches "Insert disc" within ~150ms)
+        $killerScript = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "dialog-killer-$PID.ps1")
+        try {
+            @'
+for($i=0;$i -lt 60;$i++){
+    try{
+        $w=New-Object -ComObject WScript.Shell
+        foreach($t in @("Insert disc","Insert a disc","Introduceti un disc","Introduceți un disc")){
+            if($w.AppActivate($t)){Start-Sleep -Milliseconds 80;$w.SendKeys("{ESCAPE}")}
+        }
+        [void][Runtime.InteropServices.Marshal]::ReleaseComObject($w)
+    }catch{}
+    Start-Sleep -Milliseconds 150
+}
+try{Remove-Item $MyInvocation.MyCommand.Path -Force}catch{}
+'@ | Set-Content -Path $killerScript -Encoding ASCII
+            Start-Process powershell -ArgumentList "-NoProfile","-WindowStyle","Hidden","-ExecutionPolicy","Bypass","-File",$killerScript -WindowStyle Hidden
+        } catch {}
+
         # Eject
         $recorder.EjectMedia()
 
-        # Release recorder WITHOUT re-enabling MCN (EnableMcn triggers Windows "Insert disc" dialog)
-        # MCN is re-enabled automatically when COM object is released/GC'd
+        # Release recorder (MCN re-enabled automatically by COM/GC — dialog killer handles it)
         try { [System.Runtime.InteropServices.Marshal]::ReleaseComObject($recorder) | Out-Null } catch {}
         [GC]::Collect()
         [GC]::WaitForPendingFinalizers()
-
-        # Fallback: close Windows "Insert disc" dialog if it still appears
-        Start-Sleep -Seconds 2
-        $dialogTitles = @("Insert disc", "Insert a disc", "Introduceti un disc", "Introduceți un disc", "Datenträger einlegen")
-        for ($attempt = 0; $attempt -lt 3; $attempt++) {
-            try {
-                $wsh = New-Object -ComObject WScript.Shell
-                foreach ($dlgTitle in $dialogTitles) {
-                    if ($wsh.AppActivate($dlgTitle)) {
-                        Start-Sleep -Milliseconds 200
-                        $wsh.SendKeys("{ESCAPE}")
-                        break
-                    }
-                }
-                [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wsh) | Out-Null
-            } catch {}
-            Start-Sleep -Seconds 1
-        }
 
         Write-Ok "DISC ARDS CU SUCCES!"
         $script:burnSuccess = $true
