@@ -982,11 +982,8 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         var downloadFolder = Path.Combine(projectRoot, "downloads");
         Directory.CreateDirectory(downloadFolder);
 
-        var incomingFolder = string.IsNullOrEmpty(_settings.IncomingFolder)
-            ? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "incoming")
-            : _settings.IncomingFolder;
-
-        var downloadService = new PacsDownloadService(_monitorService, downloadFolder, incomingFolder);
+        var downloadService = new PacsDownloadService(downloadFolder);
+        downloadService.CleanupOldDownloads(); // Remove crash-orphaned ZIPs
 
         var pacsVm = new PacsViewModel(downloadService, _settingsService, _settings);
 

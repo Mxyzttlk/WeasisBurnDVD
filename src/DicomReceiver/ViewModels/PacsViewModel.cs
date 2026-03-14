@@ -33,6 +33,7 @@ public class PacsViewModel : ObservableObject, IDisposable
 
     // Download state — per-operation tracking (supports concurrent downloads)
     private readonly Dictionary<CoreWebView2DownloadOperation, (string path, string name)> _activeDownloads = new();
+    private readonly List<DispatcherTimer> _fallbackTimers = new();
     private readonly EventHandler<string> _onLogMessage;
 
     // Observable properties
@@ -80,8 +81,7 @@ public class PacsViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _canBurnDvd, value);
     }
 
-    // Last downloaded ZIP path — for cleanup after burn
-    private string? _lastDownloadedZipPath;
+    // (ZIP cleanup handled by burn-gui.ps1 on success, MainViewModel on cancel)
 
     // Commands
     public ICommand ConnectCommand { get; }
@@ -107,7 +107,6 @@ public class PacsViewModel : ObservableObject, IDisposable
         BurnDvdCommand = new RelayCommand(_ => RequestBurnDvd(), _ => _canBurnDvd);
 
         // Wire download events
-        _downloadService.DownloadProgress += OnDownloadProgress;
         _onLogMessage = (_, msg) => Log(msg);
         _downloadService.LogMessage += _onLogMessage;
 
@@ -304,9 +303,10 @@ public class PacsViewModel : ObservableObject, IDisposable
         var dlPath = downloadPath;
         bool dlProcessed = false;
         var fallbackTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _fallbackTimers.Add(fallbackTimer);
         fallbackTimer.Tick += (_, _) =>
         {
-            if (dlProcessed) { fallbackTimer.Stop(); return; }
+            if (dlProcessed) { fallbackTimer.Stop(); _fallbackTimers.Remove(fallbackTimer); return; }
             if (!File.Exists(dlPath)) return;
 
             // Try to open file exclusively — if it succeeds, WebView2 released the handle
@@ -323,6 +323,7 @@ public class PacsViewModel : ObservableObject, IDisposable
             // File is ready — stop everything and process
             dlProcessed = true;
             fallbackTimer.Stop();
+            _fallbackTimers.Remove(fallbackTimer);
             e.DownloadOperation.StateChanged -= OnDownloadStateChanged;
             _activeDownloads.Remove(e.DownloadOperation);
             Log($"Download complete (file-ready fallback): {dlName}");
@@ -381,7 +382,6 @@ public class PacsViewModel : ObservableObject, IDisposable
 
         _dispatcher.BeginInvoke(() =>
         {
-            _lastDownloadedZipPath = path;
             CanBurnDvd = false;
             DownloadInfo = "";
 
@@ -580,18 +580,6 @@ public class PacsViewModel : ObservableObject, IDisposable
     // DOWNLOAD EVENTS
     // ========================================================================
 
-    private void OnDownloadProgress(object? sender, DownloadProgressEventArgs e)
-    {
-        _dispatcher.BeginInvoke(() =>
-        {
-            DownloadInfo = string.Format(L("PacsDownloading"),
-                e.FileName,
-                e.BytesReceived / (1024.0 * 1024.0),
-                e.TotalBytes / (1024.0 * 1024.0),
-                e.PercentComplete);
-        });
-    }
-
     private void RequestBurnDvd()
     {
         // Initiate PACS download — after completion, ProcessDownloadedZip fires BurnZipRequested
@@ -707,7 +695,6 @@ public class PacsViewModel : ObservableObject, IDisposable
     {
         _dispatcher.BeginInvoke(() =>
         {
-            _lastDownloadedZipPath = null;
             CanBurnDvd = true;
             BurnDvdLabel = L("BurnDvd");
             DownloadInfo = "";
@@ -751,8 +738,19 @@ public class PacsViewModel : ObservableObject, IDisposable
         _modalTimer?.Stop();
         _downloadPollTimer?.Stop();
 
-        // Unsubscribe download service events (prevent leaks if recreated)
-        _downloadService.DownloadProgress -= OnDownloadProgress;
+        // Stop all fallback download timers
+        foreach (var timer in _fallbackTimers)
+            timer.Stop();
+        _fallbackTimers.Clear();
+
+        // Unsubscribe active download event handlers
+        foreach (var (op, _) in _activeDownloads)
+        {
+            try { op.StateChanged -= OnDownloadStateChanged; } catch { }
+        }
+        _activeDownloads.Clear();
+
+        // Unsubscribe download service events
         _downloadService.LogMessage -= _onLogMessage;
 
         if (_webView != null)
