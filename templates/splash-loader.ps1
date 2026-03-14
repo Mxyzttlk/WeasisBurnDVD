@@ -569,10 +569,10 @@ $workerScript = {
         # STEP 2: Clean old temp folder
         if (Test-Path $tempDir) {
             Log ("[..] " + $s.Cleaning) 12
-            $dicomJunction = Join-Path $tempDir "DICOM"
-            if (Test-Path $dicomJunction) {
-                cmd /c "rmdir `"$dicomJunction`"" 2>$null
-            }
+            # Remove ALL junctions (DIR000, DIR001, DICOM, etc.) before recursive delete
+            Get-ChildItem -Path $tempDir -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
+                ForEach-Object { cmd /c "rmdir `"$($_.FullName)`"" 2>$null }
             Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
             if (Test-Path $tempDir) {
                 Log ("[X] " + $s.FolderLocked) 12
@@ -634,31 +634,55 @@ $workerScript = {
         Copy-Item $jreSrc (Join-Path $tempDir $jreDir) -Recurse -Force -ErrorAction Stop
         Log ("[OK] " + ($s.JreArch -f $sync.ArchLabel)) 80
 
-        # [6/6] DICOM junction
+        # [6/6] DICOM junctions (one per patient DIR folder)
         Log ("[6/6] " + $s.DicomLink) 83
         $discRoot = Split-Path $discPath -Parent
-        $dicomSrc = $null
-        # Check disc root first (PACS DICOMDIR layout: DIR000/ at root)
-        foreach ($dn in @("DIR000","DICOM","dicom","IMAGES","images")) {
-            $candidate = Join-Path $discRoot $dn
-            if (Test-Path $candidate) { $dicomSrc = $candidate; break }
-        }
-        # Fallback: check inside Weasis folder
-        if (-not $dicomSrc) {
-            foreach ($dn in @("DICOM","dicom","IMAGES","images")) {
-                $candidate = Join-Path $discPath $dn
-                if (Test-Path $candidate) { $dicomSrc = $candidate; break }
-            }
-        }
-        if ($dicomSrc) {
-            $dicomDst = Join-Path $tempDir "DICOM"
-            $null = cmd /c "mklink /J `"$dicomDst`" `"$dicomSrc`"" 2>&1
+        $dicomLinked = 0
+        # Discover all DIR* folders at disc root (DIR000, DIR001, DIR002...)
+        $dirFolders = Get-ChildItem -Path $discRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match "^DIR\d{3}$" } | Sort-Object Name
+        foreach ($dirFolder in $dirFolders) {
+            $dicomDst = Join-Path $tempDir $dirFolder.Name
+            $null = cmd /c "mklink /J `"$dicomDst`" `"$($dirFolder.FullName)`"" 2>&1
             if (-not (Test-Path $dicomDst)) {
                 Log ("[!] " + $s.DicomJuncFail) 83
-                Copy-Item $dicomSrc $dicomDst -Recurse -Force -ErrorAction SilentlyContinue
+                Copy-Item $dirFolder.FullName $dicomDst -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            $dicomLinked++
+        }
+        # Fallback: single DICOM folder (old disc layout)
+        if ($dicomLinked -eq 0) {
+            foreach ($dn in @("DICOM","dicom","IMAGES","images")) {
+                $candidate = Join-Path $discRoot $dn
+                if (Test-Path $candidate) {
+                    $dicomDst = Join-Path $tempDir "DICOM"
+                    $null = cmd /c "mklink /J `"$dicomDst`" `"$candidate`"" 2>&1
+                    if (-not (Test-Path $dicomDst)) {
+                        Log ("[!] " + $s.DicomJuncFail) 83
+                        Copy-Item $candidate $dicomDst -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+                    $dicomLinked++
+                    break
+                }
+            }
+            # Also check inside Weasis folder
+            if ($dicomLinked -eq 0) {
+                foreach ($dn in @("DICOM","dicom","IMAGES","images")) {
+                    $candidate = Join-Path $discPath $dn
+                    if (Test-Path $candidate) {
+                        $dicomDst = Join-Path $tempDir "DICOM"
+                        $null = cmd /c "mklink /J `"$dicomDst`" `"$candidate`"" 2>&1
+                        if (-not (Test-Path $dicomDst)) {
+                            Log ("[!] " + $s.DicomJuncFail) 83
+                            Copy-Item $candidate $dicomDst -Recurse -Force -ErrorAction SilentlyContinue
+                        }
+                        $dicomLinked++
+                        break
+                    }
+                }
             }
         }
-        Log ("[OK] " + $s.DicomLink) 87
+        Log ("[OK] " + $s.DicomLink + " ($dicomLinked)") 87
 
         # STEP 5: Verify essential files
         Log ("[..] " + $s.Verifying) 90
@@ -675,8 +699,10 @@ $workerScript = {
         }
         if (-not $allOk) {
             Log ("[X] " + $s.VerifyFail) 90
-            $dj = Join-Path $tempDir "DICOM"
-            if (Test-Path $dj) { cmd /c "rmdir `"$dj`"" 2>$null }
+            # Remove ALL junctions before recursive delete
+            Get-ChildItem -Path $tempDir -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Attributes -band [System.IO.FileAttributes]::ReparsePoint } |
+                ForEach-Object { cmd /c "rmdir `"$($_.FullName)`"" 2>$null }
             Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
             $sync.FallbackDVD = $true
             $sync.Completed = $true

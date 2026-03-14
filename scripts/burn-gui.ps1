@@ -661,35 +661,40 @@ $workerScript = {
         # ======== STEP 5: PATIENT INFO + DISC LABEL ========
         UpdateStatus ($s.StepPatient)
         Log ">>> $($s.StepPatient)" 29
-        $dicomSearchDir = $null
-        # Check disc root first (PACS DICOMDIR layout: DIR000/ at root)
-        if ($dicomRootFolders -and $dicomRootFolders.Count -gt 0) {
-            $dicomSearchDir = Join-Path $discStaging $dicomRootFolders[0]
-        }
-        # Fallback: Weasis/DICOM/
-        if (-not $dicomSearchDir -or -not (Test-Path $dicomSearchDir)) {
-            $dicomSearchDir = Join-Path $contentDir "DICOM"
-        }
-        if (-not (Test-Path $dicomSearchDir)) {
-            $dicomSearchDir = Get-ChildItem -Path $contentDir -Directory | Where-Object {
-                $_.Name -match "^(DICOM|dicom|IMAGES|images)$"
-            } | Select-Object -First 1 -ExpandProperty FullName
-        }
         $uniquePatients = @{}
-        if ($dicomSearchDir) {
-            $foldersChecked = @{}
+        $foldersChecked = @{}
+        # Collect search directories: all DIR root folders + Weasis/DICOM/ fallback
+        $dicomSearchDirs = @()
+        if ($dicomRootFolders -and $dicomRootFolders.Count -gt 0) {
+            foreach ($dirFolder in $dicomRootFolders) {
+                $dirPath = Join-Path $discStaging $dirFolder
+                if (Test-Path $dirPath) { $dicomSearchDirs += $dirPath }
+            }
+        }
+        # Fallback: Weasis/DICOM/ (only if no root folders found)
+        if ($dicomSearchDirs.Count -eq 0) {
+            $fallbackDir = Join-Path $contentDir "DICOM"
+            if (Test-Path $fallbackDir) { $dicomSearchDirs += $fallbackDir }
+            else {
+                $found = Get-ChildItem -Path $contentDir -Directory | Where-Object {
+                    $_.Name -match "^(DICOM|dicom|IMAGES|images)$"
+                } | Select-Object -First 1 -ExpandProperty FullName
+                if ($found) { $dicomSearchDirs += $found }
+            }
+        }
+        foreach ($dicomSearchDir in $dicomSearchDirs) {
             $allDcmForLabel = @()
-            Get-ChildItem -Path $dicomSearchDir -Recurse -File | ForEach-Object {
-                if ($_.Extension -match "^\.(dcm|DCM)$") { $allDcmForLabel += $_ }
-                elseif ($_.Extension -eq "" -and $_.Length -gt 132) {
+            foreach ($fileItem in (Get-ChildItem -Path $dicomSearchDir -Recurse -File)) {
+                if ($fileItem.Extension -match "^\.(dcm|DCM)$") { $allDcmForLabel += $fileItem }
+                elseif ($fileItem.Extension -eq "" -and $fileItem.Length -gt 132) {
                     try {
                         $buf2 = New-Object byte[] 132
-                        $fs = [System.IO.File]::OpenRead($_.FullName)
+                        $fs = [System.IO.File]::OpenRead($fileItem.FullName)
                         $fs.Read($buf2, 0, 132) | Out-Null; $fs.Close()
-                        if ([System.Text.Encoding]::ASCII.GetString($buf2, 128, 4) -eq "DICM") { $allDcmForLabel += $_ }
+                        if ([System.Text.Encoding]::ASCII.GetString($buf2, 128, 4) -eq "DICM") { $allDcmForLabel += $fileItem }
                     } catch {}
                 }
-                if ($allDcmForLabel.Count -ge 50) { return }
+                if ($allDcmForLabel.Count -ge 50) { break }
             }
             foreach ($dcmFile in $allDcmForLabel) {
                 $folder = $dcmFile.DirectoryName
@@ -700,7 +705,6 @@ $workerScript = {
                     $key = $info.PatientName.ToUpper().Trim()
                     if (-not $uniquePatients.ContainsKey($key)) { $uniquePatients[$key] = $info }
                 }
-                if ($uniquePatients.Count -gt 1) { break }
                 if ($foldersChecked.Count -ge 20) { break }
             }
         }

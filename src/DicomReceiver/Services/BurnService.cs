@@ -366,8 +366,9 @@ public class BurnService
 
     /// <summary>
     /// Burns multiple completed studies onto a single disc.
-    /// Creates a staging folder, merges all studies' DICOM files into DIR000/ with
-    /// continuous series numbering, generates a single DICOMDIR, then burns.
+    /// Creates a staging folder with a separate DIR folder per patient (DIR000/, DIR001/, DIR002/...),
+    /// each with independent series numbering starting at 0. Generates a single DICOMDIR
+    /// referencing all DIR folders, then burns.
     /// </summary>
     public async Task BurnMultipleStudiesAsync(List<ReceivedStudy> studies, AppSettings settings)
     {
@@ -389,7 +390,7 @@ public class BurnService
         string? stagingDir = null;
 
         // Declared outside try — needed in catch for file restoration on error
-        var studySeriesRanges = new List<(ReceivedStudy study, int fromSeries, int toSeriesExclusive)>();
+        var studyDirMappings = new List<(ReceivedStudy study, string dirFolderName)>();
 
         try
         {
@@ -454,60 +455,61 @@ public class BurnService
             Log($"Staging folder: {stagingDir}");
 
             // ============================================================
-            // Merge all studies into staging/DIR000/ with continuous numbering
+            // Place each study into its own DIR folder: DIR000/, DIR001/, DIR002/...
+            // Each study's series numbering starts at 0 (independent per patient)
             // ============================================================
             foreach (var study in studies)
                 study.StatusText = "Preparing...";
 
-            int seriesOffset = 0;
             int totalMoved = 0;
             int totalSeries = 0;
             var allErrors = new List<string>();
 
             await Task.Run(() =>
             {
-                foreach (var study in studies)
+                for (int i = 0; i < studies.Count; i++)
                 {
-                    int startSeries = seriesOffset;
+                    var study = studies[i];
+                    var dirFolderName = $"DIR{i:D3}"; // DIR000, DIR001, DIR002...
 
                     var prepResult = RestructureInPlace(
                         study.StoragePath, projectRoot,
                         stagingDir: stagingDir,
-                        seriesOffset: seriesOffset);
+                        seriesOffset: 0,
+                        dirFolderName: dirFolderName);
 
                     totalMoved += prepResult.FilesCopied;
                     totalSeries += prepResult.SeriesCount;
-                    seriesOffset = prepResult.NextSeriesOffset;
                     allErrors.AddRange(prepResult.Errors);
 
-                    studySeriesRanges.Add((study, startSeries, seriesOffset));
+                    studyDirMappings.Add((study, dirFolderName));
 
-                    Log($"Merged: {study.PatientName} — {prepResult.FilesCopied} files, {prepResult.SeriesCount} series (offset → {seriesOffset})");
+                    Log($"Prepared: {study.PatientName} → {dirFolderName}/ ({prepResult.FilesCopied} files, {prepResult.SeriesCount} series)");
                 }
             });
 
-            Log($"Total merged: {totalMoved} files in {totalSeries} series to DIR000/");
+            Log($"Total: {totalMoved} files in {totalSeries} series across {studies.Count} DIR folders");
 
             // Save study metadata BEFORE privacy mode modifies DICOM tags.
             foreach (var study in studies)
                 SaveStudyInfo(study);
 
             // Apply privacy mode per-study — each study has its own PrivacyMode toggle
-            // Process only the series directories belonging to each study (by series range)
+            // Each study has its own DIR folder, apply to entire folder
             // Batched into single Task.Run() to avoid thread pool overhead per study
-            var privacyRanges = studySeriesRanges
-                .Where(r => r.study.PrivacyMode != DicomPrivacyMode.None)
+            var privacyStudies = studyDirMappings
+                .Where(m => m.study.PrivacyMode != DicomPrivacyMode.None)
                 .ToList();
 
-            if (privacyRanges.Count > 0)
+            if (privacyStudies.Count > 0)
             {
-                var dir000 = Path.Combine(stagingDir, "DIR000");
                 var privacyResults = await Task.Run(() =>
                 {
                     var results = new List<(ReceivedStudy study, int count)>();
-                    foreach (var (study, fromSeries, toSeriesExclusive) in privacyRanges)
+                    foreach (var (study, dirFolderName) in privacyStudies)
                     {
-                        var count = ApplyPrivacyModeRange(dir000, study.PrivacyMode, fromSeries, toSeriesExclusive);
+                        var dirPath = Path.Combine(stagingDir, dirFolderName);
+                        var count = ApplyPrivacyMode(dirPath, study.PrivacyMode);
                         results.Add((study, count));
                     }
                     return results;
@@ -521,12 +523,14 @@ public class BurnService
             }
 
             // ============================================================
-            // Generate DICOMDIR from merged staging/DIR000/
+            // Generate DICOMDIR from all DIR folders (DIR000/, DIR001/, ...)
             // ============================================================
-            var dir000Path = Path.Combine(stagingDir, "DIR000");
+            var dirFoldersList = studyDirMappings
+                .Select(m => (Path.Combine(stagingDir, m.dirFolderName), m.dirFolderName))
+                .ToList();
             var dicomdirPath = Path.Combine(stagingDir, "DICOMDIR");
 
-            int imageRecords = await Task.Run(() => TryGenerateDicomdirFoDicom(dir000Path, dicomdirPath, allErrors));
+            int imageRecords = await Task.Run(() => TryGenerateDicomdirFoDicom(dirFoldersList, dicomdirPath, allErrors));
             string dicomdirSource;
 
             if (imageRecords > 0)
@@ -611,7 +615,7 @@ public class BurnService
 
                 // Burn failed — restore files from staging back to individual study folders
                 // so each study can be re-burned individually
-                RestoreFilesFromStaging(stagingDir!, studySeriesRanges);
+                RestoreFilesFromStaging(stagingDir!, studyDirMappings);
 
                 foreach (var study in studies)
                 {
@@ -662,11 +666,11 @@ public class BurnService
 
             // Try to restore files from staging back to study folders
             // If staging exists and has files, they were moved from original study folders
-            if (stagingDir != null && studySeriesRanges.Count > 0)
+            if (stagingDir != null && studyDirMappings.Count > 0)
             {
                 try
                 {
-                    RestoreFilesFromStaging(stagingDir, studySeriesRanges);
+                    RestoreFilesFromStaging(stagingDir, studyDirMappings);
                     // Restoration succeeded — set Complete for retry
                     foreach (var study in studies)
                     {
@@ -713,7 +717,6 @@ public class BurnService
     {
         public int FilesCopied { get; set; }
         public int SeriesCount { get; set; }
-        public int NextSeriesOffset { get; set; } // For multi-study: next available series number
         public int ImageRecordsAdded { get; set; }
         public string DicomdirSource { get; set; } = "";
         public List<string> Errors { get; set; } = new();
@@ -738,35 +741,38 @@ public class BurnService
     /// </summary>
     /// <param name="studyPath">Source study folder with series subdirectories</param>
     /// <param name="projectRoot">Project root for dcmmkdir fallback</param>
-    /// <param name="stagingDir">If set, move files to stagingDir/DIR000/ instead of studyPath/DIR000/ (multi-study)</param>
-    /// <param name="seriesOffset">Starting series number (for multi-study continuous numbering)</param>
+    /// <param name="stagingDir">If set, move files to stagingDir/{dirFolderName}/ instead of studyPath/DIR000/ (multi-study)</param>
+    /// <param name="seriesOffset">Starting series number (default 0)</param>
+    /// <param name="dirFolderName">Target DIR folder name (default "DIR000", multi-study uses DIR001, DIR002...)</param>
     private PrepareResult RestructureInPlace(string studyPath, string? projectRoot,
-        string? stagingDir = null, int seriesOffset = 0, bool generateDicomdir = true)
+        string? stagingDir = null, int seriesOffset = 0, bool generateDicomdir = true,
+        string dirFolderName = "DIR000")
     {
         var result = new PrepareResult();
 
         // Multi-study: output to staging folder; single-study: output in-place
         var outputRoot = stagingDir ?? studyPath;
-        var dir000 = Path.Combine(outputRoot, "DIR000");
-        Directory.CreateDirectory(dir000);
+        var dirFolder = Path.Combine(outputRoot, dirFolderName);
+        Directory.CreateDirectory(dirFolder);
 
         var sourceDir = new DirectoryInfo(studyPath);
         int seriesNum = seriesOffset;
 
         // ============================================================
-        // Step 1: Move DICOM files to DIR000/ with PACS naming (8-digit)
+        // Step 1: Move DICOM files to dirFolderName/ with PACS naming (8-digit)
         // File.Move() is instant on the same drive (NTFS metadata update only)
         // ============================================================
 
-        // Enumerate series directories (skip DIR000 we just created)
+        // Enumerate series directories (skip the target DIR folder we just created)
         var seriesDirs = sourceDir.GetDirectories()
-            .Where(d => !d.Name.Equals("DIR000", StringComparison.OrdinalIgnoreCase))
+            .Where(d => !d.Name.Equals(dirFolderName, StringComparison.OrdinalIgnoreCase)
+                     && !d.Name.Equals("DIR000", StringComparison.OrdinalIgnoreCase))
             .ToArray();
 
         foreach (var seriesDir in seriesDirs)
         {
             var seriesName = seriesNum.ToString("D8"); // 00000000, 00000001, ...
-            var destSeriesDir = Path.Combine(dir000, seriesName);
+            var destSeriesDir = Path.Combine(dirFolder, seriesName);
             Directory.CreateDirectory(destSeriesDir);
 
             var files = seriesDir.GetFiles("*.dcm", SearchOption.AllDirectories);
@@ -790,7 +796,7 @@ public class BurnService
             }
             else
             {
-                Directory.Delete(destSeriesDir); // Remove empty DIR000 series dir
+                Directory.Delete(destSeriesDir); // Remove empty series dir
             }
         }
 
@@ -799,7 +805,7 @@ public class BurnService
         if (rootFiles.Length > 0)
         {
             var seriesName = seriesNum.ToString("D8");
-            var destSeriesDir = Path.Combine(dir000, seriesName);
+            var destSeriesDir = Path.Combine(dirFolder, seriesName);
             Directory.CreateDirectory(destSeriesDir);
 
             int fileNum = 0;
@@ -820,42 +826,74 @@ public class BurnService
             var existingDir000 = Path.Combine(studyPath, "DIR000");
             if (Directory.Exists(existingDir000))
             {
-                var existingSeries = new DirectoryInfo(existingDir000).GetDirectories()
-                    .OrderBy(d => d.Name)
-                    .ToArray();
-
-                foreach (var srcSeriesDir in existingSeries)
+                if (stagingDir != null)
                 {
-                    var files = srcSeriesDir.GetFiles("*", SearchOption.TopDirectoryOnly);
-                    if (files.Length == 0) continue;
+                    // Multi-study: re-group ALL files by SeriesInstanceUID for proper series separation.
+                    // PACS downloads put all series into a single folder (DIR000/00000000/),
+                    // while SCP receives already have proper separation. Re-grouping handles both cases.
+                    var allDcmFiles = new DirectoryInfo(existingDir000)
+                        .GetFiles("*.DCM", SearchOption.AllDirectories)
+                        .ToList();
 
-                    if (stagingDir != null)
+                    var seriesGroups = new SortedDictionary<string, List<FileInfo>>();
+                    foreach (var file in allDcmFiles)
                     {
-                        // Multi-study: move files to staging DIR000/ with series offset
+                        string seriesUid = "unknown";
+                        try
+                        {
+                            var dcm = DicomFile.Open(file.FullName, FileReadOption.SkipLargeTags);
+                            seriesUid = dcm.Dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, "unknown");
+                        }
+                        catch { }
+
+                        if (!seriesGroups.ContainsKey(seriesUid))
+                            seriesGroups[seriesUid] = new List<FileInfo>();
+                        seriesGroups[seriesUid].Add(file);
+                    }
+
+                    foreach (var group in seriesGroups.Values)
+                    {
                         var destSeriesName = seriesNum.ToString("D8");
-                        var destSeriesDir = Path.Combine(dir000, destSeriesName);
+                        var destSeriesDir = Path.Combine(dirFolder, destSeriesName);
                         Directory.CreateDirectory(destSeriesDir);
 
-                        foreach (var file in files)
+                        int fileNum = 0;
+                        foreach (var file in group.OrderBy(f => f.Name))
                         {
-                            File.Move(file.FullName, Path.Combine(destSeriesDir, file.Name), overwrite: true);
+                            var fileName = fileNum.ToString("D8") + ".DCM";
+                            File.Move(file.FullName, Path.Combine(destSeriesDir, fileName), overwrite: true);
                             result.FilesCopied++;
+                            fileNum++;
                         }
-                        try { srcSeriesDir.Delete(); } catch { }
-                    }
-                    else
-                    {
-                        // Single-study: files already in place, just count
-                        result.FilesCopied += files.Length;
+                        seriesNum++;
                     }
 
-                    seriesNum++;
+                    // Clean up empty source directories
+                    try
+                    {
+                        foreach (var dir in new DirectoryInfo(existingDir000).GetDirectories())
+                            try { dir.Delete(true); } catch { }
+                    }
+                    catch { }
+                }
+                else
+                {
+                    // Single-study: files already in place, just count
+                    var existingSeries = new DirectoryInfo(existingDir000).GetDirectories()
+                        .OrderBy(d => d.Name)
+                        .ToArray();
+                    foreach (var srcSeriesDir in existingSeries)
+                    {
+                        var files = srcSeriesDir.GetFiles("*", SearchOption.TopDirectoryOnly);
+                        if (files.Length == 0) continue;
+                        result.FilesCopied += files.Length;
+                        seriesNum++;
+                    }
                 }
             }
         }
 
         result.SeriesCount = seriesNum - seriesOffset;
-        result.NextSeriesOffset = seriesNum;
 
         // ============================================================
         // Step 2: Generate DICOMDIR — fo-dicom first, dcmmkdir fallback
@@ -866,7 +904,7 @@ public class BurnService
 
         var dicomdirPath = Path.Combine(outputRoot, "DICOMDIR");
 
-        result.ImageRecordsAdded = TryGenerateDicomdirFoDicom(dir000, dicomdirPath, result.Errors);
+        result.ImageRecordsAdded = TryGenerateDicomdirFoDicom(dirFolder, dicomdirPath, result.Errors);
 
         if (result.ImageRecordsAdded > 0)
         {
@@ -901,12 +939,26 @@ public class BurnService
     }
 
     /// <summary>
-    /// Generates DICOMDIR using fo-dicom DicomDirectory.
+    /// Generates DICOMDIR using fo-dicom DicomDirectory (single DIR folder).
+    /// Delegates to multi-DIR overload.
+    /// </summary>
+    private static int TryGenerateDicomdirFoDicom(string dirPath, string dicomdirPath, List<string> errors)
+    {
+        var dirName = Path.GetFileName(dirPath); // "DIR000" from full path
+        return TryGenerateDicomdirFoDicom(
+            new[] { (dirPath, dirName) },
+            dicomdirPath, errors);
+    }
+
+    /// <summary>
+    /// Generates DICOMDIR using fo-dicom DicomDirectory for multiple DIR folders.
+    /// Each DIR folder gets its own ReferencedFileID prefix: DIR000\series\file, DIR001\series\file, etc.
     /// Returns the number of IMAGE records successfully added.
     /// Uses FileReadOption.SkipLargeTags — DICOMDIR needs only metadata,
     /// not pixel data. Saves ~250 MB RAM for a 500-image study.
     /// </summary>
-    private static int TryGenerateDicomdirFoDicom(string dir000Path, string dicomdirPath, List<string> errors)
+    private static int TryGenerateDicomdirFoDicom(IList<(string path, string name)> dirFolders,
+        string dicomdirPath, List<string> errors)
     {
         int imageRecords = 0;
 
@@ -914,27 +966,32 @@ public class BurnService
         {
             var dicomDir = new DicomDirectory();
 
-            var dir000 = new DirectoryInfo(dir000Path);
-            foreach (var seriesDir in dir000.GetDirectories().OrderBy(d => d.Name))
+            foreach (var (dirPath, dirName) in dirFolders)
             {
-                foreach (var file in seriesDir.GetFiles("*.DCM", SearchOption.AllDirectories).OrderBy(f => f.Name))
-                {
-                    try
-                    {
-                        // SkipLargeTags: skip pixel data and other large tags (>64KB)
-                        // DICOMDIR needs only metadata (Patient/Study/Series/SOP tags)
-                        // Saves ~250 MB RAM on a 500-image study
-                        var dcmFile = DicomFile.Open(file.FullName, FileReadOption.SkipLargeTags);
+                var dirInfo = new DirectoryInfo(dirPath);
+                if (!dirInfo.Exists) continue;
 
-                        // DICOM Part 10: ReferencedFileID relative to DICOMDIR location
-                        // Path: DIR000\00000000\00000000.DCM (matches PACS format)
-                        var refFileId = $@"DIR000\{seriesDir.Name}\{file.Name}";
-                        dicomDir.AddFile(dcmFile, refFileId);
-                        imageRecords++;
-                    }
-                    catch (Exception ex)
+                foreach (var seriesDir in dirInfo.GetDirectories().OrderBy(d => d.Name))
+                {
+                    foreach (var file in seriesDir.GetFiles("*.DCM", SearchOption.AllDirectories).OrderBy(f => f.Name))
                     {
-                        errors.Add($"fo-dicom AddFile {seriesDir.Name}/{file.Name}: {ex.Message}");
+                        try
+                        {
+                            // SkipLargeTags: skip pixel data and other large tags (>64KB)
+                            // DICOMDIR needs only metadata (Patient/Study/Series/SOP tags)
+                            // Saves ~250 MB RAM on a 500-image study
+                            var dcmFile = DicomFile.Open(file.FullName, FileReadOption.SkipLargeTags);
+
+                            // DICOM Part 10: ReferencedFileID relative to DICOMDIR location
+                            // Path: DIR000\00000000\00000000.DCM or DIR001\00000000\00000000.DCM
+                            var refFileId = $@"{dirName}\{seriesDir.Name}\{file.Name}";
+                            dicomDir.AddFile(dcmFile, refFileId);
+                            imageRecords++;
+                        }
+                        catch (Exception ex)
+                        {
+                            errors.Add($"fo-dicom AddFile {dirName}/{seriesDir.Name}/{file.Name}: {ex.Message}");
+                        }
                     }
                 }
             }
@@ -1019,28 +1076,26 @@ public class BurnService
     }
 
     /// <summary>
-    /// Restores DICOM files from staging/DIR000/ back to individual study folders.
-    /// Used when multi-burn fails — moves each study's series back so they can be re-burned.
+    /// Restores DICOM files from staging DIR folders back to individual study folders.
+    /// Used when multi-burn fails — moves each study's DIR folder back as DIR000/ so it can be re-burned.
     /// Files end up in study.StoragePath/DIR000/{seriesNum}/*.DCM — ready for single burn retry.
     /// After restoration, deletes the now-empty staging folder.
     /// </summary>
     private void RestoreFilesFromStaging(string stagingDir,
-        List<(ReceivedStudy study, int fromSeries, int toSeriesExclusive)> ranges)
+        List<(ReceivedStudy study, string dirFolderName)> mappings)
     {
-        var stagingDir000 = Path.Combine(stagingDir, "DIR000");
-        if (!Directory.Exists(stagingDir000)) return;
-
-        foreach (var (study, fromSeries, toSeriesExclusive) in ranges)
+        foreach (var (study, dirFolderName) in mappings)
         {
+            var stagingDirFolder = Path.Combine(stagingDir, dirFolderName);
+            if (!Directory.Exists(stagingDirFolder)) continue;
+
+            // Restore as DIR000/ (standard single-study layout) regardless of staging DIR name
             var studyDir000 = Path.Combine(study.StoragePath, "DIR000");
             Directory.CreateDirectory(studyDir000);
 
-            for (int s = fromSeries; s < toSeriesExclusive; s++)
+            foreach (var srcSeriesDir in Directory.GetDirectories(stagingDirFolder))
             {
-                var seriesName = s.ToString("D8");
-                var srcSeriesDir = Path.Combine(stagingDir000, seriesName);
-                if (!Directory.Exists(srcSeriesDir)) continue;
-
+                var seriesName = Path.GetFileName(srcSeriesDir);
                 var dstSeriesDir = Path.Combine(studyDir000, seriesName);
                 Directory.CreateDirectory(dstSeriesDir);
 
@@ -1052,7 +1107,9 @@ public class BurnService
                 try { Directory.Delete(srcSeriesDir); } catch { }
             }
 
-            Log($"Restored: {study.PatientName} — files moved back to {study.StoragePath}");
+            try { Directory.Delete(stagingDirFolder); } catch { }
+
+            Log($"Restored: {study.PatientName} — files moved back from {dirFolderName}/ to {study.StoragePath}");
         }
 
         // Delete staging folder ONLY if no DICOM files remain (safety check).
@@ -1206,63 +1263,6 @@ public class BurnService
         // Series text (keep SeriesInstanceUID, Modality, Number, SeriesDescription)
         DicomTag.ProtocolName,
     };
-
-    /// <summary>
-    /// Applies privacy mode to a range of series directories in DIR000/ (for multi-study burn).
-    /// Series directories are named 00000000, 00000001, etc. — applies only to [fromSeries, toSeriesExclusive).
-    /// </summary>
-    private int ApplyPrivacyModeRange(string dir000Path, DicomPrivacyMode mode, int fromSeries, int toSeriesExclusive)
-    {
-        if (mode == DicomPrivacyMode.None) return 0;
-
-        var dir000 = new DirectoryInfo(dir000Path);
-        if (!dir000.Exists) return 0;
-
-        int processed = 0;
-
-        for (int s = fromSeries; s < toSeriesExclusive; s++)
-        {
-            var seriesDir = new DirectoryInfo(Path.Combine(dir000Path, s.ToString("D8")));
-            if (!seriesDir.Exists) continue;
-
-            foreach (var file in seriesDir.EnumerateFiles("*.DCM", SearchOption.AllDirectories))
-            {
-                try
-                {
-                    // ReadAll: reads entire file (including pixel data) into memory and CLOSES the file handle.
-                    // Default (ReadLargeOnDemand) keeps the FileStream open for lazy pixel data loading,
-                    // which blocks Save() to the same file → "The process cannot access the file" error.
-                    var dcmFile = DicomFile.Open(file.FullName, FileReadOption.ReadAll);
-                    var ds = dcmFile.Dataset;
-
-                    if (mode == DicomPrivacyMode.Anonymize)
-                    {
-                        foreach (var (tag, replaceValue) in AnonymizeTags)
-                        {
-                            if (replaceValue == null)
-                                ds.Remove(tag);
-                            else
-                                ds.AddOrUpdate(tag, replaceValue);
-                        }
-                    }
-                    else if (mode == DicomPrivacyMode.HideAll)
-                    {
-                        foreach (var tag in HideAllTags)
-                            ds.Remove(tag);
-                    }
-
-                    dcmFile.Save(file.FullName);
-                    processed++;
-                }
-                catch (Exception ex)
-                {
-                    Log($"Privacy mode error ({file.Name}): {ex.Message}");
-                }
-            }
-        }
-
-        return processed;
-    }
 
     /// <summary>
     /// Applies privacy mode to all DICOM files in DIR000/.

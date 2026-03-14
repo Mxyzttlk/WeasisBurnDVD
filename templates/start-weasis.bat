@@ -281,6 +281,8 @@ if "%SPACE_FAIL%"=="1" goto :DVD_FALLBACK
 REM --- Step 2: Clean old temp folder ---
 if exist "%TEMP_DIR%" (
     echo   %C_GRAY%[..] %S_CLEANING%%C_R%
+    REM Remove ALL junctions (DIR000, DIR001, DICOM, etc.) before recursive delete
+    for /d %%D in ("%TEMP_DIR%\DIR*") do rmdir "%%D" 2>nul
     if exist "%TEMP_DIR%\DICOM" rmdir "%TEMP_DIR%\DICOM" 2>nul
     rmdir /s /q "%TEMP_DIR%" 2>nul
     if exist "%TEMP_DIR%" (
@@ -348,20 +350,31 @@ if not exist "%TEMP_DIR%\%JRE_DIR%\bin\javaw.exe" (
 )
 echo   %C_GREEN%[OK] %S_JRE%%C_R%
 
-REM --- [6/6] DICOM junction ---
+REM --- [6/6] DICOM junctions (one per patient DIR folder) ---
 echo   %C_GREEN%[6/6]%C_R% %S_DICOM%
-set "DICOM_SRC="
-REM Check disc root first (PACS DICOMDIR layout: DIR000/ at root)
-if exist "%DISC%..\DIR000" set "DICOM_SRC=%DISC%..\DIR000"
-if not defined DICOM_SRC if exist "%DISC%..\DICOM" set "DICOM_SRC=%DISC%..\DICOM"
-REM Fallback: check inside Weasis folder
-if not defined DICOM_SRC if exist "%DISC%DICOM" set "DICOM_SRC=%DISC%DICOM"
-if not defined DICOM_SRC if exist "%DISC%dicom" set "DICOM_SRC=%DISC%dicom"
-if defined DICOM_SRC (
-    mklink /J "%TEMP_DIR%\DICOM" "%DICOM_SRC%" >nul 2>&1
-    if not exist "%TEMP_DIR%\DICOM" (
+set "DICOM_LINKED=0"
+REM Discover all DIR* folders at disc root (DIR000, DIR001, DIR002...)
+for /d %%D in ("%DISC%..\DIR*") do (
+    mklink /J "%TEMP_DIR%\%%~nxD" "%%D" >nul 2>&1
+    if exist "%TEMP_DIR%\%%~nxD" (
+        set /a "DICOM_LINKED+=1"
+    ) else (
         echo   %C_YELLOW%[!] %S_DICOM_JUNC_FAIL%%C_R%
-        xcopy /E /I /Q /Y "%DICOM_SRC%" "%TEMP_DIR%\DICOM" >nul 2>&1
+        xcopy /E /I /Q /Y "%%D" "%TEMP_DIR%\%%~nxD" >nul 2>&1
+        set /a "DICOM_LINKED+=1"
+    )
+)
+REM Fallback: single DICOM folder (old disc layout)
+if "%DICOM_LINKED%"=="0" (
+    if exist "%DISC%..\DICOM" (
+        mklink /J "%TEMP_DIR%\DICOM" "%DISC%..\DICOM" >nul 2>&1
+        if not exist "%TEMP_DIR%\DICOM" xcopy /E /I /Q /Y "%DISC%..\DICOM" "%TEMP_DIR%\DICOM" >nul 2>&1
+    ) else if exist "%DISC%DICOM" (
+        mklink /J "%TEMP_DIR%\DICOM" "%DISC%DICOM" >nul 2>&1
+        if not exist "%TEMP_DIR%\DICOM" xcopy /E /I /Q /Y "%DISC%DICOM" "%TEMP_DIR%\DICOM" >nul 2>&1
+    ) else if exist "%DISC%dicom" (
+        mklink /J "%TEMP_DIR%\DICOM" "%DISC%dicom" >nul 2>&1
+        if not exist "%TEMP_DIR%\DICOM" xcopy /E /I /Q /Y "%DISC%dicom" "%TEMP_DIR%\DICOM" >nul 2>&1
     )
 )
 echo   %C_GREEN%[OK] %S_DICOM%%C_R%
@@ -404,6 +417,8 @@ REM ============================================================================
 REM  DVD FALLBACK (cleanup temp + launch direct from disc)
 REM ============================================================================
 :DVD_FALLBACK_CLEANUP
+REM Remove ALL junctions (DIR000, DIR001, DICOM, etc.) before recursive delete
+for /d %%D in ("%TEMP_DIR%\DIR*") do rmdir "%%D" 2>nul
 if exist "%TEMP_DIR%\DICOM" rmdir "%TEMP_DIR%\DICOM" 2>nul
 if exist "%TEMP_DIR%" rmdir /s /q "%TEMP_DIR%" 2>nul
 
