@@ -257,7 +257,7 @@ public partial class SettingsDialog : Window
 
     private void BrowseFolder_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new System.Windows.Forms.FolderBrowserDialog
+        using var dialog = new System.Windows.Forms.FolderBrowserDialog
         {
             Description = L("IncomingFolder"),
             SelectedPath = TxtIncomingFolder.Text

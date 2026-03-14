@@ -603,9 +603,12 @@ public class BurnService
 
             if (process.ExitCode == 0)
             {
-                // Determine disc label for log
-                var patients = studies.Select(s => s.PatientName).Distinct().ToList();
-                var label = patients.Count == 1 ? patients[0] : "Multiple";
+                // Determine disc label for log — group by normalized patient name
+                var patients = studies
+                    .Select(s => (s.PatientName ?? "").Trim().ToUpperInvariant())
+                    .Distinct()
+                    .ToList();
+                var label = patients.Count == 1 ? studies[0].PatientName : "Multiple";
 
                 foreach (var study in studies)
                 {

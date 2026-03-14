@@ -145,8 +145,8 @@ public class ImportService
         {
             foreach (var dirDir in dirDirs)
             {
-                var firstDcm = dirDir.EnumerateFiles("*.dcm", SearchOption.AllDirectories).FirstOrDefault()
-                    ?? dirDir.EnumerateFiles("*.DCM", SearchOption.AllDirectories).FirstOrDefault();
+                // NTFS is case-insensitive: *.dcm matches .DCM too — no need for second enumeration
+                var firstDcm = dirDir.EnumerateFiles("*.dcm", SearchOption.AllDirectories).FirstOrDefault();
 
                 if (firstDcm == null) continue;
 
@@ -268,8 +268,8 @@ public class ImportService
 
         Log($"Found {allDcmFiles.Count} DICOM files");
 
-        // Group by StudyInstanceUID
-        var studyFiles = new Dictionary<string, List<FileInfo>>();
+        // Group by StudyInstanceUID + SeriesInstanceUID in a SINGLE pass (avoid double DICOM parsing)
+        var studySeriesFiles = new Dictionary<string, Dictionary<string, List<FileInfo>>>();
         var studyMetadata = new Dictionary<string, (string PatientName, string PatientId,
             string StudyDate, string Modality)>();
 
@@ -284,9 +284,11 @@ public class ImportService
                     var studyUid = ds.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, "");
                     if (string.IsNullOrEmpty(studyUid)) continue;
 
-                    if (!studyFiles.ContainsKey(studyUid))
+                    var seriesUid = ds.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, "UNKNOWN");
+
+                    if (!studySeriesFiles.ContainsKey(studyUid))
                     {
-                        studyFiles[studyUid] = new List<FileInfo>();
+                        studySeriesFiles[studyUid] = new Dictionary<string, List<FileInfo>>();
                         studyMetadata[studyUid] = (
                             ds.GetSingleValueOrDefault(DicomTag.PatientName, "Unknown"),
                             ds.GetSingleValueOrDefault(DicomTag.PatientID, ""),
@@ -294,20 +296,23 @@ public class ImportService
                             ds.GetSingleValueOrDefault(DicomTag.Modality, "OT")
                         );
                     }
-                    studyFiles[studyUid].Add(file);
+
+                    if (!studySeriesFiles[studyUid].ContainsKey(seriesUid))
+                        studySeriesFiles[studyUid][seriesUid] = new List<FileInfo>();
+                    studySeriesFiles[studyUid][seriesUid].Add(file);
                 }
                 catch { }
             }
         });
 
-        if (studyFiles.Count == 0)
+        if (studySeriesFiles.Count == 0)
             throw new InvalidOperationException("No valid DICOM studies found");
 
-        Log($"Found {studyFiles.Count} study(ies)");
+        Log($"Found {studySeriesFiles.Count} study(ies)");
 
         var results = new List<ImportedStudyInfo>();
 
-        foreach (var (studyUid, files) in studyFiles)
+        foreach (var (studyUid, seriesGroups) in studySeriesFiles)
         {
             var meta = studyMetadata[studyUid];
             var studyFolder = Path.Combine(incomingFolder, studyUid);
@@ -320,31 +325,9 @@ public class ImportService
 
             Directory.CreateDirectory(studyFolder);
 
-            // Group files by SeriesInstanceUID for organized copy
+            // Copy preserving series as subdirectories
             await Task.Run(() =>
             {
-                var seriesGroups = new Dictionary<string, List<FileInfo>>();
-                foreach (var file in files)
-                {
-                    try
-                    {
-                        var dcm = DicomFile.Open(file.FullName, FileReadOption.SkipLargeTags);
-                        var seriesUid = dcm.Dataset.GetSingleValueOrDefault(
-                            DicomTag.SeriesInstanceUID, "UNKNOWN");
-                        if (!seriesGroups.ContainsKey(seriesUid))
-                            seriesGroups[seriesUid] = new List<FileInfo>();
-                        seriesGroups[seriesUid].Add(file);
-                    }
-                    catch
-                    {
-                        // Put unreadable files in UNKNOWN series
-                        if (!seriesGroups.ContainsKey("UNKNOWN"))
-                            seriesGroups["UNKNOWN"] = new List<FileInfo>();
-                        seriesGroups["UNKNOWN"].Add(file);
-                    }
-                }
-
-                // Copy preserving series as subdirectories (SeriesUID as folder name)
                 foreach (var (seriesUid, seriesFiles) in seriesGroups)
                 {
                     var seriesDir = Path.Combine(studyFolder, seriesUid);
@@ -352,7 +335,6 @@ public class ImportService
                     foreach (var file in seriesFiles)
                     {
                         var destPath = Path.Combine(seriesDir, file.Name);
-                        // Avoid collision for same-named files
                         if (File.Exists(destPath))
                             destPath = Path.Combine(seriesDir,
                                 $"{Path.GetFileNameWithoutExtension(file.Name)}_{Guid.NewGuid():N}{file.Extension}");

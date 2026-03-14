@@ -26,9 +26,9 @@ public class PacsViewModel : ObservableObject, IDisposable
     private WebView2? _webView;
     private bool _isWebViewReady;
 
-    // Automation timers
-    private DispatcherTimer? _autoTimer;       // 800ms delay after navigation for login/unlock
-    private DispatcherTimer? _modalTimer;      // 1500ms delay after DOMContentLoaded for MutationObserver
+    // Automation timers (created once, reused — avoids handler leak on every navigation)
+    private readonly DispatcherTimer _autoTimer;       // 800ms delay after navigation for login/unlock
+    private readonly DispatcherTimer _modalTimer;      // 1500ms delay after DOMContentLoaded for MutationObserver
     private DispatcherTimer? _downloadPollTimer; // Adaptive polling for PACS download modal
 
     // Download state — per-operation tracking (supports concurrent downloads)
@@ -128,6 +128,21 @@ public class PacsViewModel : ObservableObject, IDisposable
         // Wire download events
         _onLogMessage = (_, msg) => Log(msg);
         _downloadService.LogMessage += _onLogMessage;
+
+        // Create timers once (reused on every navigation — avoids handler leak)
+        _autoTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        _autoTimer.Tick += (_, _) =>
+        {
+            _autoTimer.Stop();
+            RunPageAutomation();
+        };
+
+        _modalTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+        _modalTimer.Tick += (_, _) =>
+        {
+            _modalTimer.Stop();
+            InjectModalObserver();
+        };
 
         StatusText = L("PacsDisconnected");
 
@@ -238,13 +253,7 @@ public class PacsViewModel : ObservableObject, IDisposable
                 StatusColor = "#0F9B58"; // green
 
                 // Start 800ms timer for page automation (login/unlock)
-                _autoTimer?.Stop();
-                _autoTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
-                _autoTimer.Tick += (_, _) =>
-                {
-                    _autoTimer.Stop();
-                    RunPageAutomation();
-                };
+                _autoTimer.Stop();
                 _autoTimer.Start();
             }
             else
@@ -426,13 +435,7 @@ public class PacsViewModel : ObservableObject, IDisposable
         _dispatcher.BeginInvoke(() =>
         {
             // Re-inject MutationObserver after each page load
-            _modalTimer?.Stop();
-            _modalTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
-            _modalTimer.Tick += (_, _) =>
-            {
-                _modalTimer.Stop();
-                InjectModalObserver();
-            };
+            _modalTimer.Stop();
             _modalTimer.Start();
         });
     }

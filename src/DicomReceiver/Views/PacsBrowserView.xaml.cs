@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -12,6 +13,20 @@ namespace DicomReceiver.Views;
 public partial class PacsBrowserView : UserControl
 {
     private bool _webViewInitialized;
+
+    // Pre-created frozen brushes for known status colors (avoids allocation on every change)
+    private static readonly Dictionary<string, SolidColorBrush> _brushCache = CreateBrushCache();
+    private static Dictionary<string, SolidColorBrush> CreateBrushCache()
+    {
+        var cache = new Dictionary<string, SolidColorBrush>(StringComparer.OrdinalIgnoreCase);
+        foreach (var hex in new[] { "#666666", "#FFA500", "#0F9B58", "#D32F2F" })
+        {
+            var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+            brush.Freeze();
+            cache[hex] = brush;
+        }
+        return cache;
+    }
 
     public PacsBrowserView()
     {
@@ -67,8 +82,17 @@ public partial class PacsBrowserView : UserControl
                     {
                         try
                         {
-                            var color = (Color)ColorConverter.ConvertFromString(vm.StatusColor);
-                            StatusDot.Fill = new SolidColorBrush(color);
+                            if (_brushCache.TryGetValue(vm.StatusColor, out var cached))
+                            {
+                                StatusDot.Fill = cached;
+                            }
+                            else
+                            {
+                                var color = (Color)ColorConverter.ConvertFromString(vm.StatusColor);
+                                var brush = new SolidColorBrush(color);
+                                brush.Freeze();
+                                StatusDot.Fill = brush;
+                            }
                         }
                         catch { }
                     });
