@@ -101,25 +101,12 @@ public partial class PacsBrowserView : UserControl
         }
     }
 
-    private void BtnSettings_Click(object sender, RoutedEventArgs e)
-    {
-        // Delegate to MainViewModel's OpenSettings command
-        var mainWindow = Window.GetWindow(this);
-        if (mainWindow?.DataContext is MainViewModel mainVm)
-        {
-            mainVm.OpenSettingsCommand.Execute(null);
-            // Re-apply PACS localization after settings change
-            ApplyLocalization();
-        }
-    }
-
     private void ApplyLocalization()
     {
         TxtNetworkLabel.Text = L("PacsNetwork");
         BtnConnect.Content = L("PacsConnect");
         BtnRefresh.ToolTip = L("PacsRefresh");
         BtnOpenDownloads.ToolTip = L("OpenDownloads");
-        TxtSettingsLabel.Text = L("Settings");
     }
 
     private static string L(string key) => LocalizationHelper.Get(key);

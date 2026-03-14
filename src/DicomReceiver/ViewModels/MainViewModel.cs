@@ -951,6 +951,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         _dispatcher.BeginInvoke(() => AddLog(message));
     }
 
+    public AppSettings GetSettings() => _settings;
+    public void SaveSettings() { try { _settingsService.Save(_settings); } catch { } }
+
     /// <summary>
     /// Factory: creates PacsViewModel sharing the same services.
     /// Called from MainWindow.xaml.cs on first PACS tab selection (lazy init).

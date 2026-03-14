@@ -15,6 +15,15 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // Restore saved window size (centered via XAML WindowStartupLocation)
+        if (DataContext is MainViewModel vm2)
+        {
+            var s = vm2.GetSettings();
+            Width = s.WindowWidth;
+            Height = s.WindowHeight;
+        }
+
         Loaded += MainWindow_Loaded;
         ApplyLocalization();
     }
@@ -105,6 +114,15 @@ public partial class MainWindow : Window
 
     private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
     {
+        // Save window size for next session (only if not maximized)
+        if (WindowState == WindowState.Normal && DataContext is MainViewModel mainVm)
+        {
+            var s = mainVm.GetSettings();
+            s.WindowWidth = Width;
+            s.WindowHeight = Height;
+            mainVm.SaveSettings();
+        }
+
         _pacsViewModel?.Dispose();
 
         if (DataContext is MainViewModel vm)

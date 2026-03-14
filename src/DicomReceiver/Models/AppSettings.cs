@@ -27,6 +27,10 @@ public class AppSettings
     public bool AutoDeleteAfterBurn { get; set; } = true;
     public int MaxStudiesKeep { get; set; } = 0; // 0 = unlimited
 
+    // Window size (remembered between sessions)
+    public double WindowWidth { get; set; } = 1100;
+    public double WindowHeight { get; set; } = 700;
+
     // PACS Browser settings
     public List<PacsNetwork> PacsNetworks { get; set; } = new()
     {
