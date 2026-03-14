@@ -471,6 +471,8 @@ action=Open DICOM Viewer (Weasis)
     Copy-Item -Path (Join-Path $TemplatesDir "start-weasis.bat") -Destination $ContentDir -Force
     Copy-Item -Path (Join-Path $TemplatesDir "splash-loader.ps1") -Destination $ContentDir -Force
     Copy-Item -Path (Join-Path $TemplatesDir "README.html") -Destination $ContentDir -Force
+    $readmeTxt = Join-Path $TemplatesDir "README.txt"
+    if (Test-Path $readmeTxt) { Copy-Item -Path $readmeTxt -Destination $DiscStaging -Force }
 
     # Tutorial script
     $tutorialScript = Join-Path $TemplatesDir "tutorial.ps1"

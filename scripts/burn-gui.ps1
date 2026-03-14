@@ -758,6 +758,8 @@ $workerScript = {
         Copy-Item -Path (Join-Path $templatesDir "splash-loader.ps1") -Destination $contentDir -Force
         $readmeHtml = Join-Path $templatesDir "README.html"
         if (Test-Path $readmeHtml) { Copy-Item -Path $readmeHtml -Destination $contentDir -Force }
+        $readmeTxt = Join-Path $templatesDir "README.txt"
+        if (Test-Path $readmeTxt) { Copy-Item -Path $readmeTxt -Destination $discStaging -Force }
         # Tutorial script + images
         $tutorialScript = Join-Path $templatesDir "tutorial.ps1"
         if (Test-Path $tutorialScript) { Copy-Item -Path $tutorialScript -Destination $contentDir -Force }
