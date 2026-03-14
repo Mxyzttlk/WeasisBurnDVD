@@ -119,6 +119,49 @@ public class BurnService
     }
 
     /// <summary>
+    /// Burns a ZIP file directly by passing it to burn-gui.ps1 -ZipPath.
+    /// burn-gui.ps1 handles everything: extraction, staging, disc check (with retry UI), burning, cleanup.
+    /// Used for PACS browser flow — no intermediate incoming/ folder needed.
+    /// </summary>
+    public async Task<bool> BurnZipAsync(string zipPath, AppSettings settings)
+    {
+        if (!File.Exists(zipPath))
+            throw new FileNotFoundException($"ZIP not found: {zipPath}");
+
+        var projectRoot = FindProjectRoot()
+            ?? throw new FileNotFoundException("Cannot find project root (scripts/burn.ps1)");
+
+        var burnScript = Path.Combine(projectRoot, "scripts", "burn-gui.ps1");
+        if (!File.Exists(burnScript))
+            burnScript = Path.Combine(projectRoot, "scripts", "burn.ps1");
+        if (!File.Exists(burnScript))
+            throw new FileNotFoundException("Burn script not found");
+
+        Log($"Launching burn: {Path.GetFileName(burnScript)} -ZipPath \"{Path.GetFileName(zipPath)}\"");
+
+        var args = $"-ExecutionPolicy Bypass -File \"{burnScript}\" -ZipPath \"{zipPath}\" -BurnSpeed {settings.BurnSpeed}";
+        if (!string.IsNullOrEmpty(settings.SelectedDriveId))
+            args += $" -DriveID \"{settings.SelectedDriveId}\"";
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            Arguments = args,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = Process.Start(psi)
+            ?? throw new InvalidOperationException("Failed to start burn process");
+
+        await WaitForProcessOrKill(process);
+
+        bool success = process.ExitCode == 0;
+        Log(success ? "Burn completed successfully" : $"Burn exited with code {process.ExitCode}");
+        return success;
+    }
+
+    /// <summary>
     /// Burns a completed study by calling burn.ps1 as an external process.
     /// Restructures DICOM files IN-PLACE (File.Move) to PACS-compatible layout,
     /// generates DICOMDIR, then passes the folder to burn.ps1 -DicomFolder.

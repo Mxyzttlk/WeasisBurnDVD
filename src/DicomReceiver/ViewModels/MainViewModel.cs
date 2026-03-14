@@ -988,91 +988,34 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         var downloadService = new PacsDownloadService(_monitorService, downloadFolder, incomingFolder);
 
-        // Note: PacsDownloadService.LogMessage is subscribed by PacsViewModel._onLogMessage
-        // → PacsViewModel.LogMessage → MainWindow.xaml.cs → AddLogExternal(). No direct sub here.
-
-        downloadService.DownloadCompleted += (_, e) =>
-        {
-            _dispatcher.BeginInvoke(() =>
-            {
-                if (e.Success)
-                {
-                    AddLog($"PACS download processed: {e.FileName} ({e.SizeBytes / (1024.0 * 1024.0):F1} MB) — {e.ImageCount} images");
-                    ScanIncomingFolder();
-                }
-                else
-                {
-                    AddLog($"PACS download error: {e.Error}");
-                }
-            });
-        };
-
         var pacsVm = new PacsViewModel(downloadService, _settingsService, _settings);
 
-        // Wire BURN DVD button — find study by UID and trigger burn
-        pacsVm.BurnRequested += async (_, studyUid) =>
+        // Wire PACS burn: download complete → burn-gui.ps1 -ZipPath (handles everything)
+        pacsVm.BurnZipRequested += async (_, zipPath) =>
         {
             await _dispatcher.InvokeAsync(async () =>
             {
-                var study = Studies.FirstOrDefault(s => s.StudyInstanceUid == studyUid);
-                if (study != null && study.Status == StudyStatus.Complete)
+                AddLog($"PACS burn: {Path.GetFileName(zipPath)}");
+                try
                 {
-                    // Call BurnStudy directly (not via command) so we can await + notify PACS
-                    // Skip WaitForDisc — burn-gui.ps1 has its own disc check UI with retry button
-                    study.Status = StudyStatus.Burning;
-                    try
+                    bool success = await _burnService.BurnZipAsync(zipPath, _settings);
+
+                    // burn-gui.ps1 deletes ZIP on success; on cancel we delete it here
+                    if (!success)
                     {
-                        await _burnService.BurnStudyAsync(study, _settings);
-
-                        bool burnSuccess = study.Status == StudyStatus.Done;
-
-                        // PACS flow: always clean up after burn completes or is cancelled
-                        // Once burn-gui.ps1 closes (success OR Close/X), download is consumed
-                        // BurnService may have already deleted incoming on success (AutoDelete)
-                        try
-                        {
-                            if (!string.IsNullOrEmpty(study.StoragePath) && Directory.Exists(study.StoragePath))
-                                Directory.Delete(study.StoragePath, true);
-                        }
-                        catch { }
-
-                        Studies.Remove(study);
-                        _monitorService.RemoveStudy(study.StudyInstanceUid);
-                        _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath ?? ""));
-                        AddLog(burnSuccess
-                            ? $"Burned: {study.PatientName}"
-                            : $"Burn cancelled: {study.PatientName}");
-
-                        pacsVm.OnBurnCompleted(burnSuccess);
-
-                        if (burnSuccess)
-                            ForceForeground();
+                        try { if (File.Exists(zipPath)) File.Delete(zipPath); } catch { }
                     }
-                    catch (Exception ex)
-                    {
-                        // Exception (not exit code 1) — also clean up
-                        try
-                        {
-                            if (!string.IsNullOrEmpty(study.StoragePath) && Directory.Exists(study.StoragePath))
-                                Directory.Delete(study.StoragePath, true);
-                        }
-                        catch { }
 
-                        Studies.Remove(study);
-                        _monitorService.RemoveStudy(study.StudyInstanceUid);
-                        _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath ?? ""));
-                        AddLog($"Burn error: {ex.Message}");
-                        pacsVm.OnBurnCompleted(false);
-                    }
+                    AddLog(success ? "Burn completed" : "Burn cancelled");
+                    pacsVm.OnBurnCompleted(success);
+
+                    if (success)
+                        ForceForeground();
                 }
-                else if (study != null)
+                catch (Exception ex)
                 {
-                    AddLog($"Study not ready for burn: {study.PatientName} ({study.Status})");
-                    pacsVm.OnBurnCompleted(false);
-                }
-                else
-                {
-                    AddLog("Study not found in queue — try switching to DICOM Queue tab");
+                    AddLog($"Burn error: {ex.Message}");
+                    try { if (File.Exists(zipPath)) File.Delete(zipPath); } catch { }
                     pacsVm.OnBurnCompleted(false);
                 }
             });

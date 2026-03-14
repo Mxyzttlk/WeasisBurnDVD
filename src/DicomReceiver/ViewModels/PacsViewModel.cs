@@ -80,8 +80,7 @@ public class PacsViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _canBurnDvd, value);
     }
 
-    // Last downloaded study UID + ZIP path — for BURN DVD button + cleanup
-    private string? _lastDownloadedStudyUid;
+    // Last downloaded ZIP path — for cleanup after burn
     private string? _lastDownloadedZipPath;
 
     // Commands
@@ -92,8 +91,8 @@ public class PacsViewModel : ObservableObject, IDisposable
 
     // Events
     public event EventHandler<string>? LogMessage;
-    /// <summary>Fired when user clicks BURN DVD — passes StudyInstanceUid to MainViewModel.</summary>
-    public event EventHandler<string>? BurnRequested;
+    /// <summary>Fired after ZIP download completes — passes ZIP path to MainViewModel for direct burn.</summary>
+    public event EventHandler<string>? BurnZipRequested;
 
     public PacsViewModel(PacsDownloadService downloadService, SettingsService settingsService, AppSettings settings)
     {
@@ -109,7 +108,6 @@ public class PacsViewModel : ObservableObject, IDisposable
 
         // Wire download events
         _downloadService.DownloadProgress += OnDownloadProgress;
-        _downloadService.DownloadCompleted += OnDownloadCompleted;
         _onLogMessage = (_, msg) => Log(msg);
         _downloadService.LogMessage += _onLogMessage;
 
@@ -383,21 +381,12 @@ public class PacsViewModel : ObservableObject, IDisposable
 
         _dispatcher.BeginInvoke(() =>
         {
-            DownloadInfo = L("PacsDownloadProcessing");
-            StatusColor = "#0F9B58";
-        });
+            _lastDownloadedZipPath = path;
+            CanBurnDvd = false;
+            DownloadInfo = "";
 
-        // Fire-and-forget on background — ProcessCompletedDownloadAsync has its own try-catch
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _downloadService.ProcessCompletedDownloadAsync(path);
-            }
-            catch (Exception ex)
-            {
-                Log($"ZIP processing failed: {ex.Message}");
-            }
+            // Launch burn-gui.ps1 directly with ZIP — it handles extraction, staging, disc check, burn
+            BurnZipRequested?.Invoke(this, path);
         });
     }
 
@@ -603,45 +592,13 @@ public class PacsViewModel : ObservableObject, IDisposable
         });
     }
 
-    private void OnDownloadCompleted(object? sender, DownloadCompleteEventArgs e)
-    {
-        _dispatcher.BeginInvoke(() =>
-        {
-            if (e.Success)
-            {
-                DownloadInfo = string.Format(L("PacsDownloadProcessed"), e.PatientName, e.ImageCount);
-                _lastDownloadedStudyUid = e.StudyInstanceUid;
-                _lastDownloadedZipPath = e.ZipPath;
-                CanBurnDvd = true;
-                BurnDvdLabel = $"{L("BurnDvd")} — {e.PatientName}";
-
-                // Auto-burn: fire burn immediately after download (like PS version)
-                RequestBurnDvd();
-            }
-            else
-            {
-                DownloadInfo = string.Format(L("PacsDownloadError"), e.Error ?? "Unknown");
-                StatusColor = "#D32F2F";
-            }
-        });
-    }
-
     private void RequestBurnDvd()
     {
-        if (!string.IsNullOrEmpty(_lastDownloadedStudyUid))
-        {
-            // ZIP already downloaded — burn immediately
-            CanBurnDvd = false;
-            BurnRequested?.Invoke(this, _lastDownloadedStudyUid);
-        }
-        else
-        {
-            // No ZIP — initiate PACS download, auto-burn when done
-            StatusText = L("PacsDownloading").Split('{')[0].TrimEnd() + "...";
-            StatusColor = "#FFA500";
-            DownloadInfo = L("PacsDownloadProcessing");
-            StartPacsDownload();
-        }
+        // Initiate PACS download — after completion, ProcessDownloadedZip fires BurnZipRequested
+        StatusText = L("PacsDownloading").Split('{')[0].TrimEnd() + "...";
+        StatusColor = "#FFA500";
+        DownloadInfo = "";
+        StartPacsDownload();
     }
 
     /// <summary>
@@ -742,35 +699,20 @@ public class PacsViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Called by MainViewModel after burn completes (success or failure).
-    /// On success: resets state and reloads PACS page for next download.
-    /// On failure: resets state, shows error in status bar, does NOT reload page.
+    /// Called by MainViewModel after burn-gui.ps1 exits (success or cancel).
+    /// Resets UI state and reloads PACS page for next download.
+    /// ZIP deletion handled by: burn-gui.ps1 (success) or MainViewModel (cancel).
     /// </summary>
     public void OnBurnCompleted(bool success)
     {
         _dispatcher.BeginInvoke(() =>
         {
-            // Delete downloaded ZIP after burn (success or cancel — download is consumed)
-            if (!string.IsNullOrEmpty(_lastDownloadedZipPath))
-            {
-                try
-                {
-                    if (File.Exists(_lastDownloadedZipPath))
-                    {
-                        File.Delete(_lastDownloadedZipPath);
-                        Log($"Deleted ZIP: {Path.GetFileName(_lastDownloadedZipPath)}");
-                    }
-                }
-                catch { }
-            }
-
-            _lastDownloadedStudyUid = null;
             _lastDownloadedZipPath = null;
-            CanBurnDvd = true; // Re-enable for next download or manual trigger
+            CanBurnDvd = true;
             BurnDvdLabel = L("BurnDvd");
             DownloadInfo = "";
 
-            // Always reload PACS page (reset React SPA state for next download)
+            // Reload PACS page (reset React SPA state for next download)
             if (_isWebViewReady && _webView?.CoreWebView2 != null)
             {
                 try { _webView.CoreWebView2.Reload(); } catch { }
@@ -811,7 +753,6 @@ public class PacsViewModel : ObservableObject, IDisposable
 
         // Unsubscribe download service events (prevent leaks if recreated)
         _downloadService.DownloadProgress -= OnDownloadProgress;
-        _downloadService.DownloadCompleted -= OnDownloadCompleted;
         _downloadService.LogMessage -= _onLogMessage;
 
         if (_webView != null)
