@@ -850,6 +850,16 @@ Weasis/
 - Impact: low -- the bootstrapper installer is harmless if runtime already exists (installs standalone copy)
 - Future fix: also check if `msedgewebview2.exe` exists in Edge or WebView2 paths before attempting install
 
+### ~~PACS Browser: Reload pagină la eșec burn (minor)~~ FIXED (SESSION 2026-03-14)
+- ~~`PacsViewModel.OnBurnCompleted()` apelează `Reload()` indiferent de success/failure~~
+- **Fix**: `OnBurnCompleted(true)` → Reload pagină; `OnBurnCompleted(false)` → StatusText roșu "Arderea a eșuat", fără reload
+
+### ~~PACS Browser: WaitForDisc invizibil — burn eșua silent la lipsă disc~~ FIXED (SESSION 2026-03-14)
+- **Simptom**: descărcare PACS → burn automat → 30 sec nimic vizibil → reload silent pagină
+- **Root cause**: `WaitForDisc()` din MainViewModel afișa countdown-ul pe tab-ul DICOM Queue, dar utilizatorul era pe tab-ul PACS Browser — nu vedea nimic
+- **Diferența față de flux vechi**: `burn-gui.ps1` avea propria fereastră WPF cu buton "Continuare" (verde) și "Închide" (roșu) vizibile imediat — retry indefinit
+- **Fix**: eliminat `WaitForDisc()` din flow-ul PACS `BurnRequested`. `burn-gui.ps1` se lansează direct și gestionează lipsa discului cu UI-ul său propriu (retry button, orange status, log vizibil)
+
 ## Future: Pipeline paralel (descărcare + ardere simultană)
 
 ### Concept

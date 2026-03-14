@@ -1018,35 +1018,49 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
                 if (study != null && study.Status == StudyStatus.Complete)
                 {
                     // Call BurnStudy directly (not via command) so we can await + notify PACS
+                    // Skip WaitForDisc — burn-gui.ps1 has its own disc check UI with retry button
                     study.Status = StudyStatus.Burning;
                     try
                     {
-                        if (!await WaitForDisc(study))
-                        {
-                            study.Status = StudyStatus.Complete;
-                            pacsVm.OnBurnCompleted(false);
-                            return;
-                        }
-
                         await _burnService.BurnStudyAsync(study, _settings);
 
-                        if (_settings.AutoDeleteAfterBurn && study.Status == StudyStatus.Done)
+                        bool burnSuccess = study.Status == StudyStatus.Done;
+
+                        // PACS flow: always clean up after burn completes or is cancelled
+                        // Once burn-gui.ps1 closes (success OR Close/X), download is consumed
+                        // BurnService may have already deleted incoming on success (AutoDelete)
+                        try
                         {
-                            Studies.Remove(study);
-                            _monitorService.RemoveStudy(study.StudyInstanceUid);
-                            _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
-                            AddLog($"Auto-deleted: {study.PatientName}");
+                            if (!string.IsNullOrEmpty(study.StoragePath) && Directory.Exists(study.StoragePath))
+                                Directory.Delete(study.StoragePath, true);
                         }
+                        catch { }
 
-                        pacsVm.OnBurnCompleted(true);
+                        Studies.Remove(study);
+                        _monitorService.RemoveStudy(study.StudyInstanceUid);
+                        _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath ?? ""));
+                        AddLog(burnSuccess
+                            ? $"Burned: {study.PatientName}"
+                            : $"Burn cancelled: {study.PatientName}");
 
-                        // Bring window to foreground after burn (Win32 bypass)
-                        ForceForeground();
+                        pacsVm.OnBurnCompleted(burnSuccess);
+
+                        if (burnSuccess)
+                            ForceForeground();
                     }
                     catch (Exception ex)
                     {
-                        study.Status = StudyStatus.Complete;
-                        study.StatusText = $"Error: {ex.Message}";
+                        // Exception (not exit code 1) — also clean up
+                        try
+                        {
+                            if (!string.IsNullOrEmpty(study.StoragePath) && Directory.Exists(study.StoragePath))
+                                Directory.Delete(study.StoragePath, true);
+                        }
+                        catch { }
+
+                        Studies.Remove(study);
+                        _monitorService.RemoveStudy(study.StudyInstanceUid);
+                        _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath ?? ""));
                         AddLog($"Burn error: {ex.Message}");
                         pacsVm.OnBurnCompleted(false);
                     }

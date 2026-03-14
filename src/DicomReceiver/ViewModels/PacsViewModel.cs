@@ -80,8 +80,9 @@ public class PacsViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _canBurnDvd, value);
     }
 
-    // Last downloaded study UID — for BURN DVD button
+    // Last downloaded study UID + ZIP path — for BURN DVD button + cleanup
     private string? _lastDownloadedStudyUid;
+    private string? _lastDownloadedZipPath;
 
     // Commands
     public ICommand ConnectCommand { get; }
@@ -610,6 +611,7 @@ public class PacsViewModel : ObservableObject, IDisposable
             {
                 DownloadInfo = string.Format(L("PacsDownloadProcessed"), e.PatientName, e.ImageCount);
                 _lastDownloadedStudyUid = e.StudyInstanceUid;
+                _lastDownloadedZipPath = e.ZipPath;
                 CanBurnDvd = true;
                 BurnDvdLabel = $"{L("BurnDvd")} — {e.PatientName}";
 
@@ -741,18 +743,34 @@ public class PacsViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// Called by MainViewModel after burn completes (success or failure).
-    /// Resets BURN DVD button state and reloads PACS page.
+    /// On success: resets state and reloads PACS page for next download.
+    /// On failure: resets state, shows error in status bar, does NOT reload page.
     /// </summary>
     public void OnBurnCompleted(bool success)
     {
         _dispatcher.BeginInvoke(() =>
         {
+            // Delete downloaded ZIP after burn (success or cancel — download is consumed)
+            if (!string.IsNullOrEmpty(_lastDownloadedZipPath))
+            {
+                try
+                {
+                    if (File.Exists(_lastDownloadedZipPath))
+                    {
+                        File.Delete(_lastDownloadedZipPath);
+                        Log($"Deleted ZIP: {Path.GetFileName(_lastDownloadedZipPath)}");
+                    }
+                }
+                catch { }
+            }
+
             _lastDownloadedStudyUid = null;
+            _lastDownloadedZipPath = null;
             CanBurnDvd = true; // Re-enable for next download or manual trigger
             BurnDvdLabel = L("BurnDvd");
             DownloadInfo = "";
 
-            // Reload PACS page (reset React SPA state, re-trigger auto-login)
+            // Always reload PACS page (reset React SPA state for next download)
             if (_isWebViewReady && _webView?.CoreWebView2 != null)
             {
                 try { _webView.CoreWebView2.Reload(); } catch { }

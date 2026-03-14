@@ -229,8 +229,13 @@ public class PacsDownloadService
                 }
             }
 
-            // 4. Copy to incoming/{StudyUID}/
+            // 4. Copy to incoming/{StudyUID}/ — delete old data if re-downloading same study
             var studyDir = Path.Combine(_incomingFolder, studyUid);
+            if (Directory.Exists(studyDir))
+            {
+                Log($"Study already exists in incoming — replacing: {studyUid}");
+                try { Directory.Delete(studyDir, true); } catch { }
+            }
             Directory.CreateDirectory(studyDir);
 
             // Copy DIR000 structure
@@ -322,7 +327,7 @@ public class PacsDownloadService
 
         foreach (var file in Directory.GetFiles(source))
         {
-            File.Copy(file, Path.Combine(dest, Path.GetFileName(file)));
+            File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), overwrite: true);
         }
 
         foreach (var dir in Directory.GetDirectories(source))
