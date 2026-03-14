@@ -88,6 +88,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
     public string AnonymizeTooltip => L("AnonymizeTooltip");
     public string HideAllTooltip => L("HideAllTooltip");
+    public string EditStudyTooltip => L("EditStudyTooltip");
 
     // Toolbar privacy state for multi-selection — reflects ALL selected Complete studies
     // Active = all selected Complete studies have that mode; mixed = inactive
@@ -116,6 +117,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     public ICommand DeleteSeriesCommand { get; }
     public ICommand ToggleAnonymizeStudyCommand { get; }
     public ICommand ToggleHideAllStudyCommand { get; }
+    public ICommand EditStudyCommand { get; }
     public ICommand ToggleAnonymizeSelectedCommand { get; }
     public ICommand ToggleHideAllSelectedCommand { get; }
 
@@ -135,6 +137,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         ClearLogCommand = new RelayCommand(() => LogEntries.Clear());
         ToggleExpandCommand = new RelayCommand(ToggleExpand);
         DeleteSeriesCommand = new RelayCommand(DeleteSeries);
+        EditStudyCommand = new RelayCommand(EditStudy);
         ToggleAnonymizeStudyCommand = new RelayCommand(ToggleAnonymizeStudy);
         ToggleHideAllStudyCommand = new RelayCommand(ToggleHideAllStudy);
         ToggleAnonymizeSelectedCommand = new RelayCommand(ToggleAnonymizeSelected);
@@ -266,6 +269,26 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         IsRunning = false;
     }
 
+    private void EditStudy(object? param)
+    {
+        if (param is not ReceivedStudy study) return;
+        if (study.Status != StudyStatus.Complete) return;
+
+        var dialog = new Views.EditStudyDialog(study);
+        dialog.Owner = Application.Current.MainWindow;
+        if (dialog.ShowDialog() == true)
+        {
+            AddLog(string.Format(L("EditSavedMsg"), dialog.SavedFileCount));
+
+            // Update study-info.json to persist changes
+            try
+            {
+                _burnService.SaveStudyInfo(study);
+            }
+            catch { }
+        }
+    }
+
     private void OpenSettings()
     {
         var dialog = new Views.SettingsDialog(_settings);
@@ -284,6 +307,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
             OnPropertyChanged(nameof(BurnSelectedLabel));
             OnPropertyChanged(nameof(AnonymizeTooltip));
             OnPropertyChanged(nameof(HideAllTooltip));
+            OnPropertyChanged(nameof(EditStudyTooltip));
 
             LanguageChanged?.Invoke(this, EventArgs.Empty);
             AddLog(L("RestartRequired"));

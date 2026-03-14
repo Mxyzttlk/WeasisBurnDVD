@@ -1330,7 +1330,7 @@ public class BurnService
     /// Called BEFORE ApplyPrivacyMode() to preserve PatientName, StudyDate, etc.
     /// On app restart, ScanIncomingFolder() reads this file first (before DICOM headers).
     /// </summary>
-    private void SaveStudyInfo(ReceivedStudy study)
+    public void SaveStudyInfo(ReceivedStudy study)
     {
         try
         {

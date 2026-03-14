@@ -1,0 +1,166 @@
+<Window x:Class="DicomReceiver.Views.EditStudyDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Name="EditWindow"
+        Width="560" Height="680"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{StaticResource BackgroundBrush}">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <!-- Info section header -->
+            <RowDefinition Height="Auto" />
+            <!-- StudyUID -->
+            <RowDefinition Height="Auto" />
+            <!-- Images / Series / Size -->
+            <RowDefinition Height="Auto" />
+            <!-- Separator -->
+            <RowDefinition Height="Auto" />
+            <!-- Patient section header -->
+            <RowDefinition Height="Auto" />
+            <!-- PatientName -->
+            <RowDefinition Height="Auto" />
+            <!-- PatientID -->
+            <RowDefinition Height="Auto" />
+            <!-- BirthDate -->
+            <RowDefinition Height="Auto" />
+            <!-- Sex -->
+            <RowDefinition Height="Auto" />
+            <!-- Age -->
+            <RowDefinition Height="Auto" />
+            <!-- Study section header -->
+            <RowDefinition Height="Auto" />
+            <!-- StudyDate -->
+            <RowDefinition Height="Auto" />
+            <!-- StudyDescription -->
+            <RowDefinition Height="Auto" />
+            <!-- AccessionNumber -->
+            <RowDefinition Height="Auto" />
+            <!-- StudyID -->
+            <RowDefinition Height="Auto" />
+            <!-- Modality -->
+            <RowDefinition Height="Auto" />
+            <!-- ReferringPhysician -->
+            <RowDefinition Height="Auto" />
+            <!-- Institution -->
+            <RowDefinition Height="Auto" />
+            <!-- Spacer -->
+            <RowDefinition Height="*" />
+            <!-- Buttons -->
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="160" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Info Section -->
+        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" x:Name="LblInfoSection" Text="Study Info"
+                   Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8" />
+
+        <TextBlock Grid.Row="1" Grid.Column="0" x:Name="LblStudyUid" Text="Study UID:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,6" />
+        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="TxtStudyUid" Text=""
+                   Foreground="#888" FontSize="11" VerticalAlignment="Center" Margin="0,0,0,6"
+                   TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+
+        <TextBlock Grid.Row="2" Grid.Column="0" x:Name="LblStudyStats" Text="Images / Series / Size:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,6" />
+        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="TxtStudyStats" Text=""
+                   Foreground="#888" FontSize="12" VerticalAlignment="Center" Margin="0,0,0,6" />
+
+        <!-- Separator -->
+        <Border Grid.Row="3" Grid.ColumnSpan="2" Height="1"
+                Background="{StaticResource BorderBrush}" Margin="0,6,0,10" />
+
+        <!-- Patient Section -->
+        <TextBlock Grid.Row="4" Grid.ColumnSpan="2" x:Name="LblPatientSection" Text="Patient"
+                   Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,8" />
+
+        <TextBlock Grid.Row="5" Grid.Column="0" x:Name="LblPatientName" Text="Patient Name:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBox Grid.Row="5" Grid.Column="1" x:Name="TxtPatientName"
+                 Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" Padding="6,4" Margin="0,0,0,8" FontSize="13" />
+
+        <TextBlock Grid.Row="6" Grid.Column="0" x:Name="LblPatientID" Text="Patient ID:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBox Grid.Row="6" Grid.Column="1" x:Name="TxtPatientID"
+                 Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" Padding="6,4" Margin="0,0,0,8" FontSize="13" />
+
+        <TextBlock Grid.Row="7" Grid.Column="0" x:Name="LblBirthDate" Text="Birth Date:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBox Grid.Row="7" Grid.Column="1" x:Name="TxtBirthDate"
+                 Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" Padding="6,4" Margin="0,0,0,8" FontSize="13" />
+
+        <TextBlock Grid.Row="8" Grid.Column="0" x:Name="LblSex" Text="Sex:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBox Grid.Row="8" Grid.Column="1" x:Name="TxtSex"
+                 Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" Padding="6,4" Margin="0,0,0,8" FontSize="13" Width="80" HorizontalAlignment="Left" />
+
+        <TextBlock Grid.Row="9" Grid.Column="0" x:Name="LblAge" Text="Age:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBox Grid.Row="9" Grid.Column="1" x:Name="TxtAge"
+                 Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" Padding="6,4" Margin="0,0,0,8" FontSize="13" Width="80" HorizontalAlignment="Left" />
+
+        <!-- Study Section -->
+        <TextBlock Grid.Row="10" Grid.ColumnSpan="2" x:Name="LblStudySection" Text="Study"
+                   Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" FontSize="13" Margin="0,4,0,8" />
+
+        <TextBlock Grid.Row="11" Grid.Column="0" x:Name="LblStudyDate" Text="Study Date:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBox Grid.Row="11" Grid.Column="1" x:Name="TxtStudyDate"
+                 Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" Padding="6,4" Margin="0,0,0,8" FontSize="13" Width="120" HorizontalAlignment="Left" />
+
+        <TextBlock Grid.Row="12" Grid.Column="0" x:Name="LblStudyDesc" Text="Description:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBox Grid.Row="12" Grid.Column="1" x:Name="TxtStudyDesc"
+                 Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" Padding="6,4" Margin="0,0,0,8" FontSize="13" />
+
+        <TextBlock Grid.Row="13" Grid.Column="0" x:Name="LblAccession" Text="Accession №:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBox Grid.Row="13" Grid.Column="1" x:Name="TxtAccession"
+                 Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" Padding="6,4" Margin="0,0,0,8" FontSize="13" />
+
+        <TextBlock Grid.Row="14" Grid.Column="0" x:Name="LblStudyID" Text="Study ID:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBox Grid.Row="14" Grid.Column="1" x:Name="TxtStudyID"
+                 Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" Padding="6,4" Margin="0,0,0,8" FontSize="13" Width="120" HorizontalAlignment="Left" />
+
+        <TextBlock Grid.Row="15" Grid.Column="0" x:Name="LblModality" Text="Modality:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBlock Grid.Row="15" Grid.Column="1" x:Name="TxtModality" Text=""
+                   Foreground="#888" FontSize="13" VerticalAlignment="Center" Margin="6,0,0,8" />
+
+        <TextBlock Grid.Row="16" Grid.Column="0" x:Name="LblPhysician" Text="Referring Physician:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBox Grid.Row="16" Grid.Column="1" x:Name="TxtPhysician"
+                 Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" Padding="6,4" Margin="0,0,0,8" FontSize="13" />
+
+        <TextBlock Grid.Row="17" Grid.Column="0" x:Name="LblInstitution" Text="Institution:"
+                   Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,0,8" />
+        <TextBox Grid.Row="17" Grid.Column="1" x:Name="TxtInstitution"
+                 Background="{StaticResource SurfaceBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" Padding="6,4" Margin="0,0,0,8" FontSize="13" />
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="19" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="BtnSave" Content="Save" Style="{StaticResource AccentButton}"
+                    Padding="20,6" FontSize="13" Margin="0,0,10,0" Click="Save_Click" />
+            <Button x:Name="BtnCancel" Content="Cancel" Style="{StaticResource DarkButton}"
+                    Padding="20,6" FontSize="13" Click="Cancel_Click" />
+        </StackPanel>
+    </Grid>
+    </ScrollViewer>
+</Window>

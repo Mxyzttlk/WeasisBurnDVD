@@ -400,6 +400,35 @@
                                     </Button.Template>
                                 </Button>
 
+                                <!-- Edit study metadata -->
+                                <Button Command="{Binding DataContext.EditStudyCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip="{Binding DataContext.EditStudyTooltip, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                        Width="24" Height="24" Margin="0,0,3,0"
+                                        IsEnabled="{Binding Status, Converter={StaticResource StatusToBoolConverter}}">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Grid>
+                                                <Ellipse x:Name="bg" Width="22" Height="22"
+                                                         Fill="{StaticResource SurfaceBrush}"
+                                                         Stroke="{StaticResource BorderBrush}" StrokeThickness="1.5" />
+                                                <TextBlock x:Name="icon" Text="&#xE70F;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                           Foreground="{StaticResource TextPrimaryBrush}" />
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="bg" Property="Stroke" Value="{StaticResource AccentHoverBrush}" />
+                                                </Trigger>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter TargetName="icon" Property="Opacity" Value="0.3" />
+                                                    <Setter TargetName="bg" Property="Opacity" Value="0.3" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                </Button>
+
                                 <Button Content="{Binding DataContext.BurnLabel, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                         Command="{Binding DataContext.BurnStudyCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
                                         CommandParameter="{Binding}"
