@@ -110,7 +110,8 @@
       "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj -c Debug)",
       "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj -c Release)",
       "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj -c Debug --nologo -v q)",
-      "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj -c Debug --nologo)"
+      "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj -c Debug --nologo)",
+      "Bash(dotnet build src/DicomReceiver --no-incremental)"
     ]
   }
 }

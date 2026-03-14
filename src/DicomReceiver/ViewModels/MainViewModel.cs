@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
@@ -808,47 +809,53 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
                     // ============================================================
                     // Step 2: Detect directory layout and process series
-                    // DIR000 layout: study/DIR000/00000000/00000000.DCM
+                    // DIR* layout: study/DIR000/00000000/00000000.DCM (or DIR001, DIR002...)
+                    //   — from PACS import (ZIP extraction) or RestructureInPlace
                     // Original layout: study/{SeriesUID}/{SOP}.dcm
+                    //   — from DicomScpService (C-STORE SCP)
                     // ============================================================
-                    var dir000 = new DirectoryInfo(Path.Combine(studyDir.FullName, "DIR000"));
-                    bool isDir000Layout = dir000.Exists;
+                    var dirStarDirs = studyDir.GetDirectories("DIR*");
+                    bool isDirStarLayout = dirStarDirs.Length > 0;
 
-                    if (isDir000Layout)
+                    if (isDirStarLayout)
                     {
-                        // DIR000 layout — each subdirectory of DIR000 is a series
-                        foreach (var seriesDir in dir000.GetDirectories())
+                        // DIR* layout — each DIR may contain multiple series as subdirectories
+                        // e.g., DIR000/00000000/*.DCM, DIR000/00000001/*.DCM
+                        foreach (var dirDir in dirStarDirs)
                         {
-                            var seriesFiles = seriesDir.GetFiles("*.dcm", SearchOption.AllDirectories);
-                            if (seriesFiles.Length == 0) continue;
-
-                            var seriesUid = seriesDir.Name;
-                            var modality = defaultModality;
-                            var seriesDesc = "";
-                            try
+                            foreach (var seriesDir in dirDir.GetDirectories())
                             {
-                                var seriesDicom = DicomFile.Open(seriesFiles[0].FullName, FileReadOption.SkipLargeTags);
-                                seriesUid = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, seriesUid);
-                                modality = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.Modality, modality);
-                                seriesDesc = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, "");
-                            }
-                            catch { /* use folder name as series UID */ }
+                                var seriesFiles = seriesDir.GetFiles("*.dcm", SearchOption.AllDirectories);
+                                if (seriesFiles.Length == 0) continue;
 
-                            foreach (var f in seriesFiles)
-                            {
-                                _monitorService.OnFileReceived(new FileReceivedEventArgs
+                                var seriesUid = seriesDir.Name;
+                                var modality = defaultModality;
+                                var seriesDesc = "";
+                                try
                                 {
-                                    StudyInstanceUid = studyUid,
-                                    PatientName = patientName,
-                                    PatientId = patientId,
-                                    StudyDate = studyDate,
-                                    Modality = modality,
-                                    SeriesInstanceUid = seriesUid,
-                                    SeriesDescription = seriesDesc,
-                                    FilePath = f.FullName,
-                                    FileSize = f.Length
-                                });
-                                totalFiles++;
+                                    var seriesDicom = DicomFile.Open(seriesFiles[0].FullName, FileReadOption.SkipLargeTags);
+                                    seriesUid = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, seriesUid);
+                                    modality = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.Modality, modality);
+                                    seriesDesc = seriesDicom.Dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, "");
+                                }
+                                catch { /* use folder name as series UID */ }
+
+                                foreach (var f in seriesFiles)
+                                {
+                                    _monitorService.OnFileReceived(new FileReceivedEventArgs
+                                    {
+                                        StudyInstanceUid = studyUid,
+                                        PatientName = patientName,
+                                        PatientId = patientId,
+                                        StudyDate = studyDate,
+                                        Modality = modality,
+                                        SeriesInstanceUid = seriesUid,
+                                        SeriesDescription = seriesDesc,
+                                        FilePath = f.FullName,
+                                        FileSize = f.Length
+                                    });
+                                    totalFiles++;
+                                }
                             }
                         }
                     }
@@ -1018,7 +1025,303 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
             });
         };
 
+        // Wire PACS import: download complete → extract ZIP → studies appear in Queue
+        pacsVm.ImportZipRequested += async (_, zipPath) =>
+        {
+            await _dispatcher.InvokeAsync(async () =>
+            {
+                AddLog($"PACS import: {Path.GetFileName(zipPath)}");
+                try
+                {
+                    int studyCount = await ImportZipToQueueAsync(zipPath);
+                    AddLog($"Import completed: {studyCount} studies");
+                    pacsVm.OnImportCompleted(true, studyCount);
+                }
+                catch (Exception ex)
+                {
+                    AddLog($"Import error: {ex.Message}");
+                    try { if (File.Exists(zipPath)) File.Delete(zipPath); } catch { }
+                    pacsVm.OnImportCompleted(false, 0);
+                }
+            });
+        };
+
         return pacsVm;
+    }
+
+    /// <summary>
+    /// Imports a PACS ZIP into the incoming folder, split by patient (StudyInstanceUID).
+    /// Extracts ZIP to temp → reads DICOM headers to identify patients → copies per-patient
+    /// to incoming/{StudyUID}/ → registers as Complete in Queue → deletes ZIP.
+    /// Returns the number of studies imported.
+    /// </summary>
+    private async Task<int> ImportZipToQueueAsync(string zipPath)
+    {
+        if (!File.Exists(zipPath))
+            throw new FileNotFoundException($"ZIP not found: {zipPath}");
+
+        var incomingFolder = _settings.IncomingFolder;
+        if (string.IsNullOrEmpty(incomingFolder))
+        {
+            var projectRoot = FindProjectRoot();
+            incomingFolder = Path.Combine(projectRoot, "incoming");
+        }
+        Directory.CreateDirectory(incomingFolder);
+
+        // Step 1: Extract ZIP to temp directory
+        var tempDir = Path.Combine(Path.GetTempPath(), $"WeasisBurn-import-{DateTime.Now:yyyyMMdd-HHmmss}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            AddLog("Extracting ZIP...");
+            await Task.Run(() => ZipFile.ExtractToDirectory(zipPath, tempDir));
+
+            // Step 2: Find DICOM source directory and DICOMDIR
+            // Layout 1 (Exclude Viewer): tempDir/DIR000/, tempDir/DICOMDIR
+            // Layout 2 (With Viewer): tempDir/viewer-mac.app/Contents/DICOM/DIR000/
+            string? dicomSourceDir = null;
+            string? pacsDicomdirPath = null;
+
+            // Check Layout 1: DIR000 at root
+            var dir000AtRoot = new DirectoryInfo(Path.Combine(tempDir, "DIR000"));
+            if (dir000AtRoot.Exists)
+            {
+                dicomSourceDir = tempDir;
+                var dicomdir = Path.Combine(tempDir, "DICOMDIR");
+                if (File.Exists(dicomdir))
+                    pacsDicomdirPath = dicomdir;
+            }
+
+            // Check Layout 2: nested in viewer-mac.app
+            if (dicomSourceDir == null)
+            {
+                var nestedDicom = new DirectoryInfo(
+                    Path.Combine(tempDir, "viewer-mac.app", "Contents", "DICOM"));
+                if (nestedDicom.Exists)
+                {
+                    dicomSourceDir = nestedDicom.FullName;
+                    // With-Viewer DICOMDIR has wrong paths — do NOT copy
+                }
+            }
+
+            // Check Layout 3: any DIR* directories at root
+            if (dicomSourceDir == null)
+            {
+                var tempDirInfo = new DirectoryInfo(tempDir);
+                var anyDirDirs = tempDirInfo.GetDirectories("DIR*");
+                if (anyDirDirs.Length > 0)
+                {
+                    dicomSourceDir = tempDir;
+                    var dicomdir = Path.Combine(tempDir, "DICOMDIR");
+                    if (File.Exists(dicomdir))
+                        pacsDicomdirPath = dicomdir;
+                }
+            }
+
+            if (dicomSourceDir == null)
+                throw new InvalidOperationException("No DICOM files found in ZIP");
+
+            // Step 3: Identify patients by StudyInstanceUID
+            // Read one DICOM header per DIR directory to determine StudyInstanceUID
+            var sourceInfo = new DirectoryInfo(dicomSourceDir);
+            var dirDirs = sourceInfo.GetDirectories("DIR*");
+
+            // Map: StudyInstanceUID → list of DIR directories belonging to that study
+            var studyDirMap = new Dictionary<string, List<DirectoryInfo>>();
+            // Map: StudyInstanceUID → metadata from first parsed file
+            var studyMetadata = new Dictionary<string, (string PatientName, string PatientId,
+                string StudyDate, string Modality)>();
+
+            await Task.Run(() =>
+            {
+                foreach (var dirDir in dirDirs)
+                {
+                    // Find first DICOM file (case-insensitive)
+                    var firstDcm = dirDir.EnumerateFiles("*.dcm", SearchOption.AllDirectories).FirstOrDefault()
+                        ?? dirDir.EnumerateFiles("*.DCM", SearchOption.AllDirectories).FirstOrDefault();
+
+                    if (firstDcm == null) continue;
+
+                    try
+                    {
+                        var dcm = DicomFile.Open(firstDcm.FullName, FileReadOption.SkipLargeTags);
+                        var ds = dcm.Dataset;
+                        var studyUid = ds.GetSingleValueOrDefault(DicomTag.StudyInstanceUID, "");
+
+                        if (string.IsNullOrEmpty(studyUid)) continue;
+
+                        if (!studyDirMap.ContainsKey(studyUid))
+                        {
+                            studyDirMap[studyUid] = new List<DirectoryInfo>();
+                            studyMetadata[studyUid] = (
+                                ds.GetSingleValueOrDefault(DicomTag.PatientName, "Unknown"),
+                                ds.GetSingleValueOrDefault(DicomTag.PatientID, ""),
+                                ds.GetSingleValueOrDefault(DicomTag.StudyDate, ""),
+                                ds.GetSingleValueOrDefault(DicomTag.Modality, "OT")
+                            );
+                        }
+                        studyDirMap[studyUid].Add(dirDir);
+                    }
+                    catch
+                    {
+                        // Skip unreadable directories
+                    }
+                }
+            });
+
+            if (studyDirMap.Count == 0)
+                throw new InvalidOperationException("No valid DICOM studies found in ZIP");
+
+            bool isSinglePatient = studyDirMap.Count == 1;
+            AddLog($"Found {studyDirMap.Count} study(ies) in ZIP");
+
+            // Step 4: Copy files to incoming/ per study
+            int importedStudies = 0;
+
+            foreach (var (studyUid, dirs) in studyDirMap)
+            {
+                var meta = studyMetadata[studyUid];
+                var studyFolder = Path.Combine(incomingFolder, studyUid);
+
+                // Skip if study folder already exists (prevent duplicate import)
+                if (Directory.Exists(studyFolder))
+                {
+                    AddLog($"Study already exists, skipping: {meta.PatientName}");
+                    continue;
+                }
+
+                Directory.CreateDirectory(studyFolder);
+                int fileCount = 0;
+
+                await Task.Run(() =>
+                {
+                    // Copy each DIR directory into the study folder
+                    foreach (var dirDir in dirs)
+                    {
+                        var targetDir = Path.Combine(studyFolder, dirDir.Name);
+                        CopyDirectoryRecursive(dirDir.FullName, targetDir);
+                        fileCount += dirDir.EnumerateFiles("*", SearchOption.AllDirectories).Count();
+                    }
+
+                    // DICOMDIR handling:
+                    // Single-patient ZIP: copy PACS DICOMDIR (paths match DIR000/ layout)
+                    // Multi-patient ZIP: do NOT copy — BurnStudyAsync generates per-patient DICOMDIR
+                    if (isSinglePatient && pacsDicomdirPath != null)
+                    {
+                        File.Copy(pacsDicomdirPath,
+                            Path.Combine(studyFolder, "DICOMDIR"), overwrite: true);
+                    }
+                });
+
+                // Step 5: Register files with StudyMonitorService
+                // Build file event args on background thread (DICOM header I/O + enumeration),
+                // then register all at once on UI thread to minimize UI freeze.
+                var fileArgs = await Task.Run(() =>
+                {
+                    // Windows NTFS is case-insensitive: *.dcm matches both .dcm and .DCM
+                    var studyDirInfo = new DirectoryInfo(studyFolder);
+                    var allDcmFiles = studyDirInfo.EnumerateFiles("*.dcm", SearchOption.AllDirectories)
+                        .ToList();
+
+                    var args = new List<FileReceivedEventArgs>(allDcmFiles.Count);
+
+                    // Read one DICOM header per parent directory (series-level) for metadata
+                    var processedSeriesDirs = new HashSet<string>();
+                    // Cache series metadata per directory to avoid re-reading
+                    var seriesMetaCache = new Dictionary<string, (string uid, string mod, string desc)>();
+
+                    foreach (var dcmFile in allDcmFiles)
+                    {
+                        var parentDir = dcmFile.Directory?.FullName ?? "";
+                        string seriesUid = dcmFile.Directory?.Name ?? "UNKNOWN";
+                        string modality = meta.Modality;
+                        string seriesDesc = "";
+
+                        if (seriesMetaCache.TryGetValue(parentDir, out var cached))
+                        {
+                            seriesUid = cached.uid;
+                            modality = cached.mod;
+                            seriesDesc = cached.desc;
+                        }
+                        else if (!processedSeriesDirs.Contains(parentDir))
+                        {
+                            processedSeriesDirs.Add(parentDir);
+                            try
+                            {
+                                var dcm = DicomFile.Open(dcmFile.FullName, FileReadOption.SkipLargeTags);
+                                seriesUid = dcm.Dataset.GetSingleValueOrDefault(
+                                    DicomTag.SeriesInstanceUID, seriesUid);
+                                modality = dcm.Dataset.GetSingleValueOrDefault(
+                                    DicomTag.Modality, modality);
+                                seriesDesc = dcm.Dataset.GetSingleValueOrDefault(
+                                    DicomTag.SeriesDescription, "");
+                            }
+                            catch { }
+                            seriesMetaCache[parentDir] = (seriesUid, modality, seriesDesc);
+                        }
+
+                        args.Add(new FileReceivedEventArgs
+                        {
+                            StudyInstanceUid = studyUid,
+                            PatientName = meta.PatientName,
+                            PatientId = meta.PatientId,
+                            StudyDate = meta.StudyDate,
+                            Modality = modality,
+                            SeriesInstanceUid = seriesUid,
+                            SeriesDescription = seriesDesc,
+                            FilePath = dcmFile.FullName,
+                            FileSize = dcmFile.Length
+                        });
+                    }
+
+                    return args;
+                });
+
+                // Register all files on UI thread (OnFileReceived updates ObservableCollection)
+                foreach (var arg in fileArgs)
+                    _monitorService.OnFileReceived(arg);
+
+                // Force Complete immediately (no timeout wait — all files already on disk)
+                _monitorService.ForceCompleteStudy(studyUid);
+
+                // Ensure study is in UI collection and fix StoragePath
+                var study = _monitorService.Studies
+                    .FirstOrDefault(s => s.StudyInstanceUid == studyUid);
+                if (study != null)
+                {
+                    study.StoragePath = studyFolder;
+                    if (!Studies.Contains(study))
+                        Studies.Insert(0, study);
+                    _knownStudyDirs.Add(Path.GetFileName(studyFolder));
+                }
+
+                importedStudies++;
+                AddLog($"Imported: {meta.PatientName} — {fileArgs.Count} images");
+            }
+
+            // Step 6: Delete ZIP and temp directory
+            try { File.Delete(zipPath); } catch { }
+            try { Directory.Delete(tempDir, true); } catch { }
+
+            return importedStudies;
+        }
+        catch
+        {
+            // Cleanup temp on error
+            try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { }
+            throw;
+        }
+    }
+
+    /// <summary>Recursively copy a directory tree.</summary>
+    private static void CopyDirectoryRecursive(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.GetFiles(source))
+            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)));
+        foreach (var dir in Directory.GetDirectories(source))
+            CopyDirectoryRecursive(dir, Path.Combine(destination, Path.GetFileName(dir)));
     }
 
     private static string FindProjectRoot()

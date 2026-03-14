@@ -65,14 +65,21 @@
                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
                 Padding="8,4">
             <DockPanel>
-                <!-- Right side: BURN DVD button -->
-                <Button DockPanel.Dock="Right"
-                        Content="{Binding BurnDvdLabel}"
-                        Command="{Binding BurnDvdCommand}"
-                        IsEnabled="{Binding CanBurnDvd}"
-                        Style="{StaticResource AccentButton}"
-                        Padding="12,4" FontSize="13" FontWeight="SemiBold"
-                        Margin="8,0,0,0" />
+                <!-- Right side: Import + BURN DVD buttons -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Content="{Binding ImportLabel}"
+                            Command="{Binding ImportToQueueCommand}"
+                            IsEnabled="{Binding CanImport}"
+                            Style="{StaticResource DarkButton}"
+                            Padding="12,4" FontSize="13"
+                            Margin="0,0,4,0" />
+                    <Button Content="{Binding BurnDvdLabel}"
+                            Command="{Binding BurnDvdCommand}"
+                            IsEnabled="{Binding CanBurnDvd}"
+                            Style="{StaticResource AccentButton}"
+                            Padding="12,4" FontSize="13" FontWeight="SemiBold"
+                            Margin="4,0,0,0" />
+                </StackPanel>
 
                 <!-- Left side: status -->
                 <Ellipse x:Name="StatusDot" Width="8" Height="8"

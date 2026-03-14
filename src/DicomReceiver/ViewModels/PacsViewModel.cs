@@ -81,18 +81,36 @@ public class PacsViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _canBurnDvd, value);
     }
 
-    // (ZIP cleanup handled by burn-gui.ps1 on success, MainViewModel on cancel)
+    private string _importLabel = L("ImportToQueue");
+    public string ImportLabel
+    {
+        get => _importLabel;
+        set => SetProperty(ref _importLabel, value);
+    }
+
+    private bool _canImport;
+    public bool CanImport
+    {
+        get => _canImport;
+        set => SetProperty(ref _canImport, value);
+    }
+
+    // Import mode flag — set by Import button, checked by ProcessDownloadedZip
+    private bool _importMode;
 
     // Commands
     public ICommand ConnectCommand { get; }
     public ICommand RefreshCommand { get; }
     public ICommand OpenDownloadsFolderCommand { get; }
     public ICommand BurnDvdCommand { get; }
+    public ICommand ImportToQueueCommand { get; }
 
     // Events
     public event EventHandler<string>? LogMessage;
-    /// <summary>Fired after ZIP download completes — passes ZIP path to MainViewModel for direct burn.</summary>
+    /// <summary>Fired after ZIP download completes in burn mode — passes ZIP path to MainViewModel for direct burn.</summary>
     public event EventHandler<string>? BurnZipRequested;
+    /// <summary>Fired after ZIP download completes in import mode — passes ZIP path to MainViewModel for extraction to incoming/.</summary>
+    public event EventHandler<string>? ImportZipRequested;
 
     public PacsViewModel(PacsDownloadService downloadService, SettingsService settingsService, AppSettings settings)
     {
@@ -105,6 +123,7 @@ public class PacsViewModel : ObservableObject, IDisposable
         RefreshCommand = new RelayCommand(_ => Refresh(), _ => _isWebViewReady);
         OpenDownloadsFolderCommand = new RelayCommand(_ => OpenDownloadsFolder());
         BurnDvdCommand = new RelayCommand(_ => RequestBurnDvd(), _ => _canBurnDvd);
+        ImportToQueueCommand = new RelayCommand(_ => RequestImportToQueue(), _ => _canImport);
 
         // Wire download events
         _onLogMessage = (_, msg) => Log(msg);
@@ -139,6 +158,7 @@ public class PacsViewModel : ObservableObject, IDisposable
 
         Log("WebView2 initialized");
         CanBurnDvd = true; // BURN always enabled — dual mode (existing ZIP or trigger download)
+        CanImport = true;
 
         // Auto-connect to last used network
         if (_settings.PacsNetworks.Count > 0)
@@ -362,6 +382,8 @@ public class PacsViewModel : ObservableObject, IDisposable
                 {
                     DownloadInfo = L("PacsDownloadInterrupted");
                     StatusColor = "#D32F2F";
+                    CanBurnDvd = true;
+                    CanImport = true;
                 });
                 Log($"Download interrupted: {dl.name}");
             }
@@ -383,10 +405,19 @@ public class PacsViewModel : ObservableObject, IDisposable
         _dispatcher.BeginInvoke(() =>
         {
             CanBurnDvd = false;
+            CanImport = false;
             DownloadInfo = "";
 
-            // Launch burn-gui.ps1 directly with ZIP — it handles extraction, staging, disc check, burn
-            BurnZipRequested?.Invoke(this, path);
+            if (_importMode)
+            {
+                _importMode = false;
+                ImportZipRequested?.Invoke(this, path);
+            }
+            else
+            {
+                // Launch burn-gui.ps1 directly with ZIP — it handles extraction, staging, disc check, burn
+                BurnZipRequested?.Invoke(this, path);
+            }
         });
     }
 
@@ -582,8 +613,23 @@ public class PacsViewModel : ObservableObject, IDisposable
 
     private void RequestBurnDvd()
     {
+        _importMode = false;
+        CanBurnDvd = false;
+        CanImport = false; // Prevent race: user clicking Import while burn download in progress
         // Initiate PACS download — after completion, ProcessDownloadedZip fires BurnZipRequested
         StatusText = L("PacsDownloading").Split('{')[0].TrimEnd() + "...";
+        StatusColor = "#FFA500";
+        DownloadInfo = "";
+        StartPacsDownload();
+    }
+
+    private void RequestImportToQueue()
+    {
+        _importMode = true;
+        CanBurnDvd = false; // Prevent race: user clicking BURN while import download in progress
+        CanImport = false;
+        // Initiate PACS download — after completion, ProcessDownloadedZip fires ImportZipRequested
+        StatusText = L("PacsImporting");
         StatusColor = "#FFA500";
         DownloadInfo = "";
         StartPacsDownload();
@@ -596,7 +642,12 @@ public class PacsViewModel : ObservableObject, IDisposable
     /// </summary>
     private async void StartPacsDownload()
     {
-        if (!_isWebViewReady || _webView == null) return;
+        if (!_isWebViewReady || _webView == null)
+        {
+            CanBurnDvd = true;
+            CanImport = true;
+            return;
+        }
 
         // Step 1: Click the download toolbar button
         const string clickDownloadJs = @"
@@ -615,10 +666,17 @@ public class PacsViewModel : ObservableObject, IDisposable
             if (result.Contains("no-download-btn"))
             {
                 Log("No download button found on page");
+                CanBurnDvd = true;
+                CanImport = true;
                 return;
             }
         }
-        catch { return; }
+        catch
+        {
+            CanBurnDvd = true;
+            CanImport = true;
+            return;
+        }
 
         // Step 2: Poll for download modal (adaptive: 500ms first 20 ticks, then 3000ms)
         // Mirrors PS Start-PacsDownload: no title check, broad selectors, stateless per tick
@@ -638,6 +696,8 @@ public class PacsViewModel : ObservableObject, IDisposable
             {
                 _downloadPollTimer!.Stop();
                 Log("Download modal polling timed out");
+                CanBurnDvd = true;
+                CanImport = true;
                 return;
             }
 
@@ -696,8 +756,41 @@ public class PacsViewModel : ObservableObject, IDisposable
         _dispatcher.BeginInvoke(() =>
         {
             CanBurnDvd = true;
+            CanImport = true;
             BurnDvdLabel = L("BurnDvd");
             DownloadInfo = "";
+
+            // Reload PACS page (reset React SPA state for next download)
+            if (_isWebViewReady && _webView?.CoreWebView2 != null)
+            {
+                try { _webView.CoreWebView2.Reload(); } catch { }
+            }
+        });
+    }
+
+    /// <summary>
+    /// Called by MainViewModel after import to Queue completes.
+    /// Resets UI state and reloads PACS page for next download.
+    /// </summary>
+    public void OnImportCompleted(bool success, int studyCount)
+    {
+        _dispatcher.BeginInvoke(() =>
+        {
+            CanBurnDvd = true;
+            CanImport = true;
+            ImportLabel = L("ImportToQueue");
+            DownloadInfo = "";
+
+            if (success)
+            {
+                StatusText = string.Format(L("PacsImportComplete"), studyCount);
+                StatusColor = "#0F9B58"; // green
+            }
+            else
+            {
+                StatusText = L("PacsImportError");
+                StatusColor = "#D32F2F"; // red
+            }
 
             // Reload PACS page (reset React SPA state for next download)
             if (_isWebViewReady && _webView?.CoreWebView2 != null)
