@@ -506,10 +506,15 @@ public class BurnService
                 var privacyResults = await Task.Run(() =>
                 {
                     var results = new List<(ReceivedStudy study, int count)>();
+                    int anonIndex = 1;
                     foreach (var (study, dirFolderName) in privacyStudies)
                     {
                         var dirPath = Path.Combine(stagingDir, dirFolderName);
-                        var count = ApplyPrivacyMode(dirPath, study.PrivacyMode);
+                        // Unique label per study — prevents Siemens from merging patients
+                        var anonLabel = privacyStudies.Count > 1
+                            ? $"Anonymous {anonIndex++}"
+                            : null; // single study: use default "Anonymous"
+                        var count = ApplyPrivacyMode(dirPath, study.PrivacyMode, anonLabel);
                         results.Add((study, count));
                     }
                     return results;
@@ -1269,13 +1274,17 @@ public class BurnService
     /// Opens each file, modifies/removes tags, saves in-place.
     /// Returns count of files processed.
     /// </summary>
-    private int ApplyPrivacyMode(string dir000Path, DicomPrivacyMode mode)
+    /// <param name="anonymousLabel">Unique label per study for Anonymize mode (e.g. "Anonymous 1").
+    /// When null, defaults to "Anonymous". MUST be unique per study in multi-study burns,
+    /// otherwise Siemens merges all studies into one PATIENT record.</param>
+    private int ApplyPrivacyMode(string dir000Path, DicomPrivacyMode mode, string? anonymousLabel = null)
     {
         if (mode == DicomPrivacyMode.None) return 0;
 
         var dir000 = new DirectoryInfo(dir000Path);
         if (!dir000.Exists) return 0;
 
+        var anonName = anonymousLabel ?? "Anonymous";
         int processed = 0;
 
         foreach (var file in dir000.EnumerateFiles("*.DCM", SearchOption.AllDirectories))
@@ -1292,6 +1301,8 @@ public class BurnService
                     {
                         if (replaceValue == null)
                             ds.Remove(tag);
+                        else if (tag == DicomTag.PatientName || tag == DicomTag.PatientID || tag == DicomTag.AccessionNumber)
+                            ds.AddOrUpdate(tag, anonName);
                         else
                             ds.AddOrUpdate(tag, replaceValue);
                     }
@@ -1300,6 +1311,13 @@ public class BurnService
                 {
                     foreach (var tag in HideAllTags)
                         ds.Remove(tag);
+                    // Keep unique PatientName/ID for multi-study DICOMDIR separation
+                    // Without this, Siemens merges all studies into one empty PATIENT record
+                    if (anonName != "Anonymous")
+                    {
+                        ds.AddOrUpdate(DicomTag.PatientName, anonName);
+                        ds.AddOrUpdate(DicomTag.PatientID, anonName);
+                    }
                 }
 
                 dcmFile.Save(file.FullName);
