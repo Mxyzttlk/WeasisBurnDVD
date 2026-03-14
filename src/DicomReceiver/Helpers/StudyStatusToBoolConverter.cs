@@ -10,7 +10,7 @@ public class StudyStatusToBoolConverter : IValueConverter
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         if (value is StudyStatus status)
-            return status == StudyStatus.Complete;
+            return status == StudyStatus.Complete || status == StudyStatus.Done;
         return false;
     }
 
@@ -25,7 +25,7 @@ public class StudyStatusToMultiBoolConverter : IMultiValueConverter
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
         if (values.Length > 0 && values[0] is StudyStatus status)
-            return status == StudyStatus.Complete;
+            return status == StudyStatus.Complete || status == StudyStatus.Done;
         return false;
     }
 

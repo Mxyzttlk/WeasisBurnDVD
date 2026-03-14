@@ -1,0 +1,141 @@
+<Window x:Class="DicomReceiver.Views.ImportDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="560" Height="420"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{StaticResource BackgroundBrush}">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <!-- Title -->
+            <RowDefinition Height="Auto" />
+            <!-- ZIP section -->
+            <RowDefinition Height="Auto" />
+            <!-- Folder section -->
+            <RowDefinition Height="Auto" />
+            <!-- Disc section -->
+            <RowDefinition Height="Auto" />
+            <!-- Spacer -->
+            <RowDefinition Height="*" />
+            <!-- Status -->
+            <RowDefinition Height="Auto" />
+            <!-- Buttons -->
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <TextBlock x:Name="TxtTitle" Grid.Row="0" Text="Import DICOM"
+                   Foreground="White" FontSize="18" FontWeight="SemiBold"
+                   Margin="0,0,0,20" />
+
+        <!-- ZIP File -->
+        <Border Grid.Row="1" Margin="0,0,0,10" Padding="10"
+                Background="{StaticResource SurfaceBrush}"
+                CornerRadius="4" BorderThickness="1"
+                BorderBrush="{StaticResource BorderBrush}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <RadioButton x:Name="RbZip" Grid.Column="0"
+                             GroupName="Source" IsChecked="True"
+                             Foreground="White" FontSize="13"
+                             VerticalAlignment="Center" Margin="0,0,10,0">
+                    <TextBlock x:Name="TxtZipLabel" Text="ZIP file" />
+                </RadioButton>
+                <TextBox x:Name="TxtZipPath" Grid.Column="1"
+                         IsReadOnly="True" FontSize="12"
+                         Background="#333" Foreground="#CCC"
+                         BorderBrush="{StaticResource BorderBrush}"
+                         Padding="5,4" Margin="0,0,8,0"
+                         VerticalAlignment="Center" />
+                <Button x:Name="BtnBrowseZip" Grid.Column="2"
+                        Content="..." Width="36" Height="28"
+                        Style="{StaticResource DarkButton}"
+                        Click="BrowseZip_Click" />
+            </Grid>
+        </Border>
+
+        <!-- Folder -->
+        <Border Grid.Row="2" Margin="0,0,0,10" Padding="10"
+                Background="{StaticResource SurfaceBrush}"
+                CornerRadius="4" BorderThickness="1"
+                BorderBrush="{StaticResource BorderBrush}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <RadioButton x:Name="RbFolder" Grid.Column="0"
+                             GroupName="Source"
+                             Foreground="White" FontSize="13"
+                             VerticalAlignment="Center" Margin="0,0,10,0">
+                    <TextBlock x:Name="TxtFolderLabel" Text="Local folder" />
+                </RadioButton>
+                <TextBox x:Name="TxtFolderPath" Grid.Column="1"
+                         IsReadOnly="True" FontSize="12"
+                         Background="#333" Foreground="#CCC"
+                         BorderBrush="{StaticResource BorderBrush}"
+                         Padding="5,4" Margin="0,0,8,0"
+                         VerticalAlignment="Center" />
+                <Button x:Name="BtnBrowseFolder" Grid.Column="2"
+                        Content="..." Width="36" Height="28"
+                        Style="{StaticResource DarkButton}"
+                        Click="BrowseFolder_Click" />
+            </Grid>
+        </Border>
+
+        <!-- Optical Disc -->
+        <Border Grid.Row="3" Margin="0,0,0,10" Padding="10"
+                Background="{StaticResource SurfaceBrush}"
+                CornerRadius="4" BorderThickness="1"
+                BorderBrush="{StaticResource BorderBrush}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <RadioButton x:Name="RbDisc" Grid.Column="0"
+                             GroupName="Source"
+                             Foreground="White" FontSize="13"
+                             VerticalAlignment="Center" Margin="0,0,10,0">
+                    <TextBlock x:Name="TxtDiscLabel" Text="Optical disc" />
+                </RadioButton>
+                <ComboBox x:Name="CmbDrives" Grid.Column="1"
+                          FontSize="12" Height="28"
+                          Margin="0,0,8,0"
+                          VerticalAlignment="Center" />
+                <Button x:Name="BtnRefreshDrives" Grid.Column="2"
+                        Width="36" Height="28"
+                        Style="{StaticResource DarkButton}"
+                        Click="RefreshDrives_Click">
+                    <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="12" />
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- Status text (shown during import) -->
+        <TextBlock x:Name="TxtStatus" Grid.Row="5"
+                   Foreground="#999" FontSize="12"
+                   VerticalAlignment="Bottom" Margin="0,0,0,10"
+                   TextWrapping="Wrap" Visibility="Collapsed" />
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="7" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="BtnImport" Content="Import"
+                    Width="100" Height="32" Margin="0,0,10,0"
+                    Style="{StaticResource AccentButton}"
+                    Click="Import_Click" />
+            <Button x:Name="BtnCancel" Content="Cancel"
+                    Width="100" Height="32"
+                    Style="{StaticResource DarkButton}"
+                    IsCancel="True" />
+        </StackPanel>
+    </Grid>
+</Window>

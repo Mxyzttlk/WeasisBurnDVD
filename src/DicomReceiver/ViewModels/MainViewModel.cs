@@ -120,6 +120,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     public ICommand EditStudyCommand { get; }
     public ICommand ToggleAnonymizeSelectedCommand { get; }
     public ICommand ToggleHideAllSelectedCommand { get; }
+    public ICommand ImportCommand { get; }
 
     public MainViewModel()
     {
@@ -142,6 +143,7 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         ToggleHideAllStudyCommand = new RelayCommand(ToggleHideAllStudy);
         ToggleAnonymizeSelectedCommand = new RelayCommand(ToggleAnonymizeSelected);
         ToggleHideAllSelectedCommand = new RelayCommand(ToggleHideAllSelected);
+        ImportCommand = new RelayCommand(ImportStudy);
 
         // Wire up events
         // BeginInvoke (async) — does NOT block the fo-dicom network thread
@@ -1017,6 +1019,72 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         };
 
         return pacsVm;
+    }
+
+    // ========================================================================
+    // MANUAL IMPORT — ZIP / Folder / Optical Disc
+    // ========================================================================
+    private async void ImportStudy(object? param)
+    {
+        var dialog = new Views.ImportDialog();
+        dialog.Owner = System.Windows.Application.Current.MainWindow;
+
+        if (dialog.ShowDialog() != true) return;
+
+        var source = dialog.SelectedSource;
+        var path = dialog.SelectedPath;
+
+        AddLog($"Import: {source} — {path}");
+
+        try
+        {
+            var importService = new Services.ImportService();
+            importService.LogMessage += (_, msg) =>
+                _dispatcher.BeginInvoke(() => AddLog(msg));
+
+            var incomingFolder = _settings.IncomingFolder;
+            if (string.IsNullOrEmpty(incomingFolder))
+            {
+                var projectRoot = FindProjectRoot();
+                incomingFolder = Path.Combine(projectRoot, "incoming");
+            }
+            Directory.CreateDirectory(incomingFolder);
+
+            var results = source switch
+            {
+                Services.ImportSource.Zip => await importService.ImportFromZipAsync(path, incomingFolder),
+                Services.ImportSource.Folder => await importService.ImportFromFolderAsync(path, incomingFolder),
+                Services.ImportSource.Disc => await importService.ImportFromDiscAsync(path, incomingFolder),
+                _ => throw new InvalidOperationException("Unknown import source")
+            };
+
+            // Register studies on UI thread
+            foreach (var result in results)
+            {
+                foreach (var arg in result.FileArgs)
+                    _monitorService.OnFileReceived(arg);
+
+                _monitorService.ForceCompleteStudy(result.StudyInstanceUid);
+
+                var study = _monitorService.Studies
+                    .FirstOrDefault(s => s.StudyInstanceUid == result.StudyInstanceUid);
+                if (study != null)
+                {
+                    study.StoragePath = result.StudyFolder;
+                    if (!Studies.Contains(study))
+                        Studies.Insert(0, study);
+                    _knownStudyDirs.Add(Path.GetFileName(result.StudyFolder));
+                }
+            }
+
+            AddLog(string.Format(L("ImportComplete"), results.Count));
+        }
+        catch (Exception ex)
+        {
+            AddLog($"{L("ImportError")}: {ex.Message}");
+            System.Windows.MessageBox.Show(ex.Message, L("ImportError"),
+                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+        }
     }
 
     /// <summary>

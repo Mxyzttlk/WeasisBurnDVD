@@ -169,8 +169,8 @@ public class BurnService
     /// </summary>
     public async Task BurnStudyAsync(ReceivedStudy study, AppSettings settings)
     {
-        // Accept both Complete (direct call) and Burning (after WaitForDisc pre-check)
-        if (study.Status != StudyStatus.Complete && study.Status != StudyStatus.Burning)
+        // Accept Complete (direct call), Burning (after WaitForDisc), and Done (re-burn)
+        if (study.Status != StudyStatus.Complete && study.Status != StudyStatus.Burning && study.Status != StudyStatus.Done)
             throw new InvalidOperationException("Study is not complete");
 
         study.Status = StudyStatus.Burning;
@@ -396,8 +396,8 @@ public class BurnService
         {
             foreach (var study in studies)
             {
-                // Accept both Complete (direct call) and Burning (after WaitForDisc pre-check)
-                if (study.Status != StudyStatus.Complete && study.Status != StudyStatus.Burning)
+                // Accept Complete (direct call), Burning (after WaitForDisc), and Done (re-burn)
+                if (study.Status != StudyStatus.Complete && study.Status != StudyStatus.Burning && study.Status != StudyStatus.Done)
                     throw new InvalidOperationException($"Study {study.PatientName} is not complete");
 
                 study.Status = StudyStatus.Burning;

@@ -86,6 +86,7 @@ public partial class MainWindow : Window
 
         // Toolbar
         TxtSettingsLabel.Text = L("Settings");
+        TxtImportLabel.Text = L("Import");
         BtnDeleteAll.Content = L("DeleteAll");
 
         // DataGrid column headers

@@ -1575,6 +1575,7 @@ src/DicomReceiver/
 │   └── PacsViewModel.cs               ← NOU: WebView2 + auto-login/unlock/exclude
 ├── Views/
 │   ├── SettingsDialog.xaml / .xaml.cs  ← + PACS section
+│   ├── EditStudyDialog.xaml / .xaml.cs ← NOU: editare metadate DICOM per studiu
 │   ├── PacsBrowserView.xaml / .xaml.cs ← NOU: WebView2 UserControl
 │   └── PacsNetworkDialog.xaml / .xaml.cs ← NOU: edit rețele PACS
 └── Resources/
@@ -1660,6 +1661,7 @@ Două moduri de operare:
 - ✅ **Descărcare ZIP din PACS** — interceptare, progres, extragere → studiu în Queue
 - ✅ **Rețele PACS** — editare/adăugare/ștergere/reordonare, parole DPAPI
 - ✅ **Traduceri PACS** — RO/RU/EN pentru toate textele browser PACS
+- ✅ **Edit Study Dialog** — editare metadate DICOM (PatientName, dates, etc.) cu format helpers
 
 ### Configurare pe stația Siemens (face inginerul/administratorul):
 
@@ -1787,6 +1789,56 @@ Găsite 6 buguri, toate rezolvate.
 #### De testat:
 - Fallback timer detectează ZIP finalizat → procesare → studiu în DICOM Queue → burn-gui.ps1 se lansează
 - Pipeline complet end-to-end: BURN DVD → download → extract → import → burn
+
+### SESSION 2026-03-14 (session 2 — Edit Study Dialog: editare metadate DICOM):
+
+#### Funcționalitate: buton Edit în DICOM Queue
+Buton ✏️ care deschide dialog modal cu metadatele DICOM ale studiului selectat (doar Complete).
+Permite editarea: PatientName, PatientID, BirthDate, Sex, Age, StudyDate, StudyDescription,
+AccessionNumber, StudyID, ReferringPhysicianName, InstitutionName. Modality — read-only.
+Save scrie tag-urile modificate în TOATE fișierele DICOM ale studiului (pattern ReadAll → modify → Save in-place).
+
+#### Display format helpers (DICOM raw ↔ human-readable):
+- `FormatDateForDisplay`: YYYYMMDD → DD.MM.YYYY
+- `ParseDateForDicom`: DD.MM.YYYY → YYYYMMDD
+- `FormatNameForDisplay`: LASTNAME^FIRSTNAME → LASTNAME FIRSTNAME
+- `ParseNameForDicom`: LASTNAME FIRSTNAME → LASTNAME^FIRSTNAME (first space only)
+- `FormatAgeForDisplay`: 066Y → 66
+- `ParseAgeForDicom`: 66 → 066Y
+- `_originalValues` stochează format RAW DICOM (pentru detectare modificări)
+- `GetChangedTags()` convertește display → DICOM înainte de comparare
+
+#### Fișiere noi (2):
+- **`Views/EditStudyDialog.xaml`** — Dialog modal 560×680, dark theme, ScrollViewer + Grid 2 coloane (Label 160px + Control flex)
+  - Secțiuni: Info (read-only: StudyUID, stats), Patient (5 câmpuri editabile), Study (7 câmpuri, Modality read-only)
+  - Butoane: Save (AccentButton) + Cancel (DarkButton)
+- **`Views/EditStudyDialog.xaml.cs`** — Code-behind cu format helpers + DICOM read/write
+  - `LoadDicomTags()`: găsește primul .dcm recursiv, citește cu SkipLargeTags, populează TextBox-uri formatat
+  - `GetChangedTags()`: local function `Check()` cu optional `toDicom` converter
+  - `Save_Click`: async, `Task.Run(() => ApplyTagChanges())`, actualizează ReceivedStudy model
+  - `ApplyTagChanges()`: single pass cu `OrdinalIgnoreCase` filter (evită dubla procesare NTFS)
+
+#### Fișiere modificate (3):
+- **`MainWindow.xaml`** — Buton Edit (✏️ `&#xE70F;` Segoe MDL2) în coloana Action din DataGrid, lângă Burn
+  - `IsEnabled` legat de `StatusToBoolConverter` (doar Complete), opacity 0.3 când dezactivat
+- **`ViewModels/MainViewModel.cs`** — `EditStudyCommand` (RelayCommand), `EditStudy()` handler, `EditStudyTooltip`
+  - După save reușit: `SaveStudyInfo()` actualizează study-info.json
+- **`Services/BurnService.cs`** — `SaveStudyInfo()` schimbat din private → public
+- **`Helpers/LocalizationHelper.cs`** — ~20 chei noi × 3 limbi (RO/RU/EN):
+  - EditStudyTooltip, EditStudyTitle, EditInfoSection, EditStudyUid, EditStudyStats
+  - EditPatientSection, EditPatientName, EditPatientID, EditBirthDate, EditSex, EditAge
+  - EditStudySection, EditStudyDate, EditStudyDesc, EditAccession, EditStudyID, EditModality
+  - EditPhysician, EditInstitution, EditSave, EditCancel, EditSaving, EditSavedMsg
+
+#### Audit și fix-uri:
+1. **🔴 FIX: IEnumerator resource leak** — `GetEnumerator()` nu era disposed în `LoadDicomTags()`
+   - Fix: înlocuit cu `foreach` + `break` (auto-dispose prin `using` implicit)
+2. **🔴 FIX: Fișiere .dcm procesate de 2 ori pe NTFS** — `*.DCM` și `*.dcm` găseau aceleași fișiere pe NTFS case-insensitive, guard-ul `file.Extension == ".DCM"` era case-sensitive → fișiere cu `.dcm` treceau prin ambele loop-uri
+   - Fix: un singur loop cu `file.Extension.Equals(".dcm", StringComparison.OrdinalIgnoreCase)`
+3. **🟡 FIX: Dead code eliminat** — `changedTags.ContainsKey(DicomTag.Modality)` nu putea fi niciodată true (Modality e read-only TextBlock)
+4. **✅ OK**: zero cache accumulation (dialog modal, creat/distrus per utilizare), zero memory leaks, zero lag (Task.Run pe operații grele)
+
+#### Build: ✅ 0 erori, 0 warnings
 
 ## Hardware
 - Work: internal DVD writer

@@ -144,6 +144,20 @@ public static class LocalizationHelper
             ["EditCancel"] = "Anuleaza",
             ["EditSaving"] = "Se salveaza...",
             ["EditSavedMsg"] = "Metadate salvate: {0} fisiere",
+            // Import
+            ["Import"] = "Import",
+            ["ImportTitle"] = "Import DICOM",
+            ["ImportZip"] = "Fisier ZIP",
+            ["ImportFolder"] = "Folder local",
+            ["ImportDisc"] = "Disc optic",
+            ["ImportNoDisc"] = "Fara disc",
+            ["ImportNoDiscInserted"] = "Introduceti un disc in unitate",
+            ["ImportSelectSource"] = "Selectati sursa DICOM",
+            ["ImportCancel"] = "Anuleaza",
+            ["ImportProgress"] = "Se importa...",
+            ["ImportComplete"] = "Import complet: {0} studii",
+            ["ImportError"] = "Eroare import",
+            ["ImportDuplicateSkip"] = "Studiu existent, se omite: {0}",
         },
         ["ru"] = new()
         {
@@ -280,6 +294,20 @@ public static class LocalizationHelper
             ["EditCancel"] = "\u041e\u0442\u043c\u0435\u043d\u0430",
             ["EditSaving"] = "\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u0435...",
             ["EditSavedMsg"] = "\u041c\u0435\u0442\u0430\u0434\u0430\u043d\u043d\u044b\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b: {0} \u0444\u0430\u0439\u043b\u043e\u0432",
+            // Import
+            ["Import"] = "\u0418\u043c\u043f\u043e\u0440\u0442",
+            ["ImportTitle"] = "\u0418\u043c\u043f\u043e\u0440\u0442 DICOM",
+            ["ImportZip"] = "ZIP \u0444\u0430\u0439\u043b",
+            ["ImportFolder"] = "\u041b\u043e\u043a\u0430\u043b\u044c\u043d\u0430\u044f \u043f\u0430\u043f\u043a\u0430",
+            ["ImportDisc"] = "\u041e\u043f\u0442\u0438\u0447\u0435\u0441\u043a\u0438\u0439 \u0434\u0438\u0441\u043a",
+            ["ImportNoDisc"] = "\u041d\u0435\u0442 \u0434\u0438\u0441\u043a\u0430",
+            ["ImportNoDiscInserted"] = "\u0412\u0441\u0442\u0430\u0432\u044c\u0442\u0435 \u0434\u0438\u0441\u043a \u0432 \u043f\u0440\u0438\u0432\u043e\u0434",
+            ["ImportSelectSource"] = "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0438\u0441\u0442\u043e\u0447\u043d\u0438\u043a DICOM",
+            ["ImportCancel"] = "\u041e\u0442\u043c\u0435\u043d\u0430",
+            ["ImportProgress"] = "\u0418\u043c\u043f\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u0438\u0435...",
+            ["ImportComplete"] = "\u0418\u043c\u043f\u043e\u0440\u0442 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d: {0} \u0438\u0441\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u043d\u0438\u0439",
+            ["ImportError"] = "\u041e\u0448\u0438\u0431\u043a\u0430 \u0438\u043c\u043f\u043e\u0440\u0442\u0430",
+            ["ImportDuplicateSkip"] = "\u0418\u0441\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u043d\u0438\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442, \u043f\u0440\u043e\u043f\u0443\u0441\u043a: {0}",
         },
         ["en"] = new()
         {
@@ -416,6 +444,20 @@ public static class LocalizationHelper
             ["EditCancel"] = "Cancel",
             ["EditSaving"] = "Saving...",
             ["EditSavedMsg"] = "Metadata saved: {0} files",
+            // Import
+            ["Import"] = "Import",
+            ["ImportTitle"] = "Import DICOM",
+            ["ImportZip"] = "ZIP file",
+            ["ImportFolder"] = "Local folder",
+            ["ImportDisc"] = "Optical disc",
+            ["ImportNoDisc"] = "No disc",
+            ["ImportNoDiscInserted"] = "Insert a disc into the drive",
+            ["ImportSelectSource"] = "Select DICOM source",
+            ["ImportCancel"] = "Cancel",
+            ["ImportProgress"] = "Importing...",
+            ["ImportComplete"] = "Import complete: {0} studies",
+            ["ImportError"] = "Import error",
+            ["ImportDuplicateSkip"] = "Study already exists, skipping: {0}",
         }
     };
 
