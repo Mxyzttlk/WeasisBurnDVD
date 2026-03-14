@@ -300,9 +300,8 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         try
         {
-            // Pre-burn disc check — poll IMAPI2 for blank media (max 30 sec)
-            if (!await WaitForDisc(study)) return;
-
+            // burn-gui.ps1 handles disc detection with its own WPF UI
+            // (Continue/Close buttons, retry loop, orange status)
             await _burnService.BurnStudyAsync(study, _settings);
 
             // Auto-delete from queue after successful burn
@@ -343,9 +342,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
             if (result != MessageBoxResult.Yes) return;
 
-            // Pre-burn disc check — poll IMAPI2 for blank media (max 30 sec)
-            // Pass ALL selected studies so they all get Burning status (prevents AutoPurge/deletion)
-            if (!await WaitForDisc(selected)) return;
+            // Set ALL studies to Burning — prevents AutoPurge/deletion during burn
+            foreach (var s in selected)
+                s.Status = StudyStatus.Burning;
 
             // Clear DataGrid selection before burning (prevents re-click)
             RequestClearSelection?.Invoke(this, EventArgs.Empty);
@@ -373,59 +372,6 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
             }
             AddLog($"Burn error: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// Polls IMAPI2 for blank disc every 2 seconds (max 30 sec).
-    /// Shows "Waiting for disc..." in study StatusText during polling.
-    /// Returns true if disc detected, false if timeout (studies revert to Complete).
-    /// Marks ALL passed studies as Burning to prevent AutoPurge/deletion during wait.
-    /// </summary>
-    private async Task<bool> WaitForDisc(ReceivedStudy study) => await WaitForDisc(new List<ReceivedStudy> { study });
-
-    private async Task<bool> WaitForDisc(List<ReceivedStudy> studies)
-    {
-        // Mark ALL studies as Burning — prevents AutoPurge and user deletion during wait
-        foreach (var s in studies)
-        {
-            s.Status = StudyStatus.Burning;
-            s.StatusText = L("WaitingForDisc");
-        }
-        AddLog(L("WaitingForDisc"));
-
-        bool discReady = false;
-        string driveName = "";
-
-        // Poll every 2 sec, max 15 attempts = 30 sec
-        for (int i = 0; i < 15; i++)
-        {
-            (discReady, driveName) = _burnService.CheckDiscReady(_settings);
-            if (discReady) break;
-
-            // Update status with countdown
-            var remaining = (15 - i) * 2;
-            foreach (var s in studies)
-                s.StatusText = $"{L("WaitingForDisc")} ({remaining}s)";
-
-            await Task.Delay(2000);
-        }
-
-        if (discReady)
-        {
-            var msg = string.Format(L("DiscDetected"), driveName);
-            AddLog(msg);
-            // Status stays Burning — BurnStudyAsync/BurnMultipleStudiesAsync will continue
-            return true;
-        }
-
-        // Timeout — revert ALL studies to Complete for retry
-        foreach (var s in studies)
-        {
-            s.Status = StudyStatus.Complete;
-            s.StatusText = string.Format(L("DiscNotFound"), driveName);
-        }
-        AddLog(string.Format(L("DiscNotFound"), driveName));
-        return false;
     }
 
     /// <summary>
