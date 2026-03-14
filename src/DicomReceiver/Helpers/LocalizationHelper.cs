@@ -11,7 +11,7 @@ public static class LocalizationHelper
     {
         ["ro"] = new()
         {
-            ["AppTitle"] = "DICOM Receiver — Weasis Burn",
+            ["AppTitle"] = "DICOM Receiver",
             ["Start"] = "Pornire",
             ["Stop"] = "Oprire",
             ["Settings"] = "Setari",
@@ -161,7 +161,7 @@ public static class LocalizationHelper
         },
         ["ru"] = new()
         {
-            ["AppTitle"] = "DICOM Receiver — Weasis Burn",
+            ["AppTitle"] = "DICOM Receiver",
             ["Start"] = "\u0417\u0430\u043f\u0443\u0441\u043a",
             ["Stop"] = "\u0421\u0442\u043e\u043f",
             ["Settings"] = "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438",
@@ -311,7 +311,7 @@ public static class LocalizationHelper
         },
         ["en"] = new()
         {
-            ["AppTitle"] = "DICOM Receiver — Weasis Burn",
+            ["AppTitle"] = "DICOM Receiver",
             ["Start"] = "Start",
             ["Stop"] = "Stop",
             ["Settings"] = "Settings",

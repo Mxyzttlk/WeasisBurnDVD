@@ -7,10 +7,10 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>DicomReceiver</RootNamespace>
     <AssemblyName>DicomReceiver</AssemblyName>
-    <ApplicationIcon>Resources\weasis.ico</ApplicationIcon>
+    <ApplicationIcon>Resources\app.ico</ApplicationIcon>
     <Version>1.0.0</Version>
     <Nullable>enable</Nullable>
-    <Description>DICOM C-STORE SCP Receiver for Weasis Burn</Description>
+    <Description>DICOM Receiver — medical imaging study receiver and DVD burn tool</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Resources\weasis.ico">
+    <None Update="Resources\app.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
