@@ -15,6 +15,9 @@ src/DicomReceiverService/bin/
 src/DicomReceiverService/obj/
 src/Installer/bin/
 src/Installer/obj/
+src/Bundle/bin/
+src/Bundle/obj/
+src/Bundle/prereqs/
 
 # Publish output (build artifacts)
 publish/

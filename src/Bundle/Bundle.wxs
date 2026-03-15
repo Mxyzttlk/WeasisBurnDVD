@@ -1,0 +1,57 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Bundle Name="DICOM Receiver"
+          Manufacturer="Mxyzttlk"
+          Version="$(var.ProductVersion)"
+          UpgradeCode="7a84f17d-3b5e-4c0f-9d6a-e8274c59b1a3"
+          IconSourceFile="$(var.AppPublishDir)Resources\app.ico"
+          AboutUrl="https://github.com/Mxyzttlk"
+          Compressed="yes">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication
+        LicenseUrl=""
+        Theme="hyperlinkLicense" />
+    </BootstrapperApplication>
+
+    <!-- .NET 8 Desktop Runtime detection -->
+    <util:RegistrySearch
+      Id="NetDesktopRuntime80Search"
+      Root="HKLM"
+      Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
+      Result="exists"
+      Variable="NetRuntime80Installed" />
+
+    <Chain>
+      <!-- Step 1: .NET 8 Desktop Runtime (skipped if already installed) -->
+      <!--
+        install-dotnet.cmd wrapper logic:
+          1. Try quiet install (/install /quiet /norestart)
+          2. If failed, check registry — maybe already installed
+          3. If still missing, retry with interactive UI (/install /norestart)
+          4. Final registry check before reporting failure
+      -->
+      <ExePackage
+        Id="NetDesktopRuntime80"
+        SourceFile="prereqs\install-dotnet.cmd"
+        PerMachine="yes"
+        Permanent="yes"
+        Vital="yes"
+        DetectCondition="NetRuntime80Installed">
+        <Payload SourceFile="prereqs\windowsdesktop-runtime-8.0.14-win-x64.exe" />
+        <ExitCode Value="0" Behavior="success" />
+      </ExePackage>
+
+      <!-- Step 2: DICOM Receiver MSI -->
+      <MsiPackage
+        Id="DicomReceiverMsi"
+        SourceFile="$(var.MsiPath)"
+        Vital="yes" />
+
+    </Chain>
+
+  </Bundle>
+
+</Wix>

@@ -1,10 +1,12 @@
 # Build script for DICOM Receiver installer
-# Produces two MSI variants: Online (~10 MB) and Offline (~540 MB with tools)
+# Produces two variants:
+#   Online  — small .exe (~10 MB), installs .NET 8 Runtime + MSI, then runs setup.ps1
+#   Offline — large .exe (~540 MB), installs .NET 8 Runtime + MSI with tools bundled
 #
 # Usage:
 #   .\build.ps1              # Build both variants
-#   .\build.ps1 -Online      # Build online MSI only
-#   .\build.ps1 -Offline     # Build offline MSI only
+#   .\build.ps1 -Online      # Build online only
+#   .\build.ps1 -Offline     # Build offline only
 #   .\build.ps1 -Version 1.2.0  # Override version number
 
 param(
@@ -28,61 +30,88 @@ if (-not $Online -and -not $Offline) {
     $Offline = $true
 }
 
-# Step 1: Publish .NET projects
-Write-Host "[1/4] Publishing DicomReceiver..." -ForegroundColor Yellow
+$step = 1
+$totalSteps = 2 + [int]$Online + [int]$Offline + [int]$Online + [int]$Offline
+
+# Step 1: Publish DicomReceiver
+Write-Host "[$step/$totalSteps] Publishing DicomReceiver..." -ForegroundColor Yellow
 dotnet publish "$root\src\DicomReceiver\DicomReceiver.csproj" `
     -c $Configuration -r win-x64 --no-self-contained `
     -o "$root\publish\app" -p:Version=$Version
 if ($LASTEXITCODE -ne 0) { throw "DicomReceiver publish failed" }
+$step++
 
-Write-Host "[2/4] Publishing DicomReceiverService..." -ForegroundColor Yellow
+# Step 2: Publish DicomReceiverService
+Write-Host "[$step/$totalSteps] Publishing DicomReceiverService..." -ForegroundColor Yellow
 dotnet publish "$root\src\DicomReceiverService\DicomReceiverService.csproj" `
     -c $Configuration -r win-x64 --no-self-contained `
     -o "$root\publish\service" -p:Version=$Version
 if ($LASTEXITCODE -ne 0) { throw "DicomReceiverService publish failed" }
+$step++
 
-# Step 3: Build Online MSI
+# --- Online variant ---
 if ($Online) {
-    Write-Host "[3/4] Building Online MSI..." -ForegroundColor Yellow
+    # Build MSI (online)
+    Write-Host "[$step/$totalSteps] Building Online MSI..." -ForegroundColor Yellow
     dotnet build "$root\src\Installer\Installer.wixproj" `
         -c $Configuration `
         -p:IncludeTools=false `
         -p:ProductVersion=$Version
     if ($LASTEXITCODE -ne 0) { throw "Online MSI build failed" }
+    $step++
 
-    $onlineMsi = Get-ChildItem "$root\src\Installer\bin\$Configuration" -Filter "*Online*.msi" -Recurse | Select-Object -First 1
-    if ($onlineMsi) {
-        Write-Host "  Online MSI: $($onlineMsi.FullName)" -ForegroundColor Green
-        Write-Host "  Size: $([math]::Round($onlineMsi.Length / 1MB, 1)) MB" -ForegroundColor Green
+    # Build Bundle (online) — wraps .NET 8 Runtime + MSI
+    Write-Host "[$step/$totalSteps] Building Online Bundle (.exe)..." -ForegroundColor Yellow
+    dotnet build "$root\src\Bundle\Bundle.wixproj" `
+        -c $Configuration `
+        -p:IncludeTools=false `
+        -p:ProductVersion=$Version
+    if ($LASTEXITCODE -ne 0) { throw "Online Bundle build failed" }
+
+    $onlineExe = Get-ChildItem "$root\src\Bundle\bin\$Configuration" -Filter "*Online*.exe" -Recurse | Select-Object -First 1
+    if ($onlineExe) {
+        Write-Host "  Online: $($onlineExe.FullName)" -ForegroundColor Green
+        Write-Host "  Size: $([math]::Round($onlineExe.Length / 1MB, 1)) MB" -ForegroundColor Green
     }
+    $step++
 }
 
-# Step 4: Build Offline MSI
+# --- Offline variant ---
 if ($Offline) {
-    # Verify tools exist for offline build
     $weasisDir = "$root\tools\weasis-portable"
     $dcmtkDir = "$root\tools\dcmtk"
-    if (-not (Test-Path $weasisDir)) {
-        Write-Host "  WARNING: tools\weasis-portable\ not found. Run scripts\setup.ps1 first." -ForegroundColor Red
+    if (-not (Test-Path $weasisDir) -or -not (Test-Path $dcmtkDir)) {
+        Write-Host "  WARNING: tools\ not complete. Run scripts\setup.ps1 first." -ForegroundColor Red
         Write-Host "  Skipping offline build." -ForegroundColor Red
-    } elseif (-not (Test-Path $dcmtkDir)) {
-        Write-Host "  WARNING: tools\dcmtk\ not found. Run scripts\setup.ps1 first." -ForegroundColor Red
-        Write-Host "  Skipping offline build." -ForegroundColor Red
+        $step += 2
     } else {
-        Write-Host "[4/4] Building Offline MSI (this may take a while)..." -ForegroundColor Yellow
+        # Build MSI (offline)
+        Write-Host "[$step/$totalSteps] Building Offline MSI (this may take a while)..." -ForegroundColor Yellow
         dotnet build "$root\src\Installer\Installer.wixproj" `
             -c $Configuration `
             -p:IncludeTools=true `
             -p:ProductVersion=$Version
         if ($LASTEXITCODE -ne 0) { throw "Offline MSI build failed" }
+        $step++
 
-        $offlineMsi = Get-ChildItem "$root\src\Installer\bin\$Configuration" -Filter "*Offline*.msi" -Recurse | Select-Object -First 1
-        if ($offlineMsi) {
-            Write-Host "  Offline MSI: $($offlineMsi.FullName)" -ForegroundColor Green
-            Write-Host "  Size: $([math]::Round($offlineMsi.Length / 1MB, 1)) MB" -ForegroundColor Green
+        # Build Bundle (offline)
+        Write-Host "[$step/$totalSteps] Building Offline Bundle (.exe)..." -ForegroundColor Yellow
+        dotnet build "$root\src\Bundle\Bundle.wixproj" `
+            -c $Configuration `
+            -p:IncludeTools=true `
+            -p:ProductVersion=$Version
+        if ($LASTEXITCODE -ne 0) { throw "Offline Bundle build failed" }
+
+        $offlineExe = Get-ChildItem "$root\src\Bundle\bin\$Configuration" -Filter "*Offline*.exe" -Recurse | Select-Object -First 1
+        if ($offlineExe) {
+            Write-Host "  Offline: $($offlineExe.FullName)" -ForegroundColor Green
+            Write-Host "  Size: $([math]::Round($offlineExe.Length / 1MB, 1)) MB" -ForegroundColor Green
         }
+        $step++
     }
 }
 
 Write-Host ""
 Write-Host "=== Build Complete ===" -ForegroundColor Cyan
+Write-Host "MSI:    src\Installer\bin\$Configuration\" -ForegroundColor Cyan
+Write-Host "Bundle: src\Bundle\bin\$Configuration\" -ForegroundColor Cyan

@@ -1,0 +1,30 @@
+<Project Sdk="WixToolset.Sdk/6.0.2">
+
+  <PropertyGroup>
+    <OutputType>Bundle</OutputType>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <OutputName Condition="'$(IncludeTools)' != 'true'">DicomReceiver-Installer-Online</OutputName>
+    <OutputName Condition="'$(IncludeTools)' == 'true'">DicomReceiver-Installer-Offline</OutputName>
+
+    <IncludeTools Condition="'$(IncludeTools)' == ''">false</IncludeTools>
+    <DefineConstants>
+      IncludeTools=$(IncludeTools);
+      AppPublishDir=$(MSBuildThisFileDirectory)..\..\publish\app\;
+      ServicePublishDir=$(MSBuildThisFileDirectory)..\..\publish\service\;
+      ScriptsDir=$(MSBuildThisFileDirectory)..\..\scripts\;
+      MsiPath=$(MSBuildThisFileDirectory)..\Installer\bin\$(Configuration)\DicomReceiver-Setup-Online.msi;
+      ProductVersion=1.0.0
+    </DefineConstants>
+    <!-- Use offline MSI path when tools are included -->
+    <DefineConstants Condition="'$(IncludeTools)' == 'true'">
+      $(DefineConstants);
+      MsiPath=$(MSBuildThisFileDirectory)..\Installer\bin\$(Configuration)\DicomReceiver-Setup-Offline.msi
+    </DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Bal.wixext" Version="6.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="6.0.2" />
+  </ItemGroup>
+
+</Project>
