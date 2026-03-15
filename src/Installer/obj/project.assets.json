@@ -86,7 +86,7 @@
     "version": "1.0.0",
     "restore": {
       "projectUniqueName": "E:\\Weasis Burn\\src\\Installer\\Installer.wixproj",
-      "projectName": "DicomReceiver-Setup-Offline",
+      "projectName": "DicomReceiver-Setup-Online",
       "projectPath": "E:\\Weasis Burn\\src\\Installer\\Installer.wixproj",
       "packagesPath": "C:\\Users\\Fucking_User\\.nuget\\packages\\",
       "outputPath": "E:\\Weasis Burn\\src\\Installer\\obj\\",

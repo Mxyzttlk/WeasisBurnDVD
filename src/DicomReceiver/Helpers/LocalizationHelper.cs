@@ -146,6 +146,13 @@ public static class LocalizationHelper
             ["EditCancel"] = "Anuleaza",
             ["EditSaving"] = "Se salveaza...",
             ["EditSavedMsg"] = "Metadate salvate: {0} fisiere",
+            // Weasis tools check
+            ["WeasisToolsTitle"] = "Weasis Portable lipseste",
+            ["WeasisToolsMissing"] = "Weasis Portable (viewer DICOM + JRE) nu a fost gasit.\nAcesta este necesar pentru a crea discuri DVD cu viewer integrat.",
+            ["WeasisToolsSetupPath"] = "Script de descarcare:",
+            ["WeasisToolsRunSetup"] = "Doriti sa lansati descarcarea automata acum?\n(Necesita drepturi de administrator, ~500 MB descarcare)",
+            ["WeasisToolsNotFound"] = "Scriptul de descarcare nu a fost gasit in:",
+            ["WeasisToolsSetupLaunched"] = "Setup lansat — asteptati finalizarea descarcarii, apoi reincercati burn-ul.",
             // Import
             ["Import"] = "Import",
             ["ImportTitle"] = "Import DICOM",
@@ -304,6 +311,13 @@ public static class LocalizationHelper
             ["EditCancel"] = "\u041e\u0442\u043c\u0435\u043d\u0430",
             ["EditSaving"] = "\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u0435...",
             ["EditSavedMsg"] = "\u041c\u0435\u0442\u0430\u0434\u0430\u043d\u043d\u044b\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u044b: {0} \u0444\u0430\u0439\u043b\u043e\u0432",
+            // Weasis tools check
+            ["WeasisToolsTitle"] = "Weasis Portable \u043e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442",
+            ["WeasisToolsMissing"] = "Weasis Portable (DICOM \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0449\u0438\u043a + JRE) \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d.\n\u041e\u043d \u043d\u0435\u043e\u0431\u0445\u043e\u0434\u0438\u043c \u0434\u043b\u044f \u0441\u043e\u0437\u0434\u0430\u043d\u0438\u044f DVD \u0441 \u0432\u0441\u0442\u0440\u043e\u0435\u043d\u043d\u044b\u043c \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0449\u0438\u043a\u043e\u043c.",
+            ["WeasisToolsSetupPath"] = "\u0421\u043a\u0440\u0438\u043f\u0442 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438:",
+            ["WeasisToolsRunSetup"] = "\u0417\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0447\u0435\u0441\u043a\u0443\u044e \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0443 \u0441\u0435\u0439\u0447\u0430\u0441?\n(\u0422\u0440\u0435\u0431\u0443\u044e\u0442\u0441\u044f \u043f\u0440\u0430\u0432\u0430 \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440\u0430, ~500 MB \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0430)",
+            ["WeasisToolsNotFound"] = "\u0421\u043a\u0440\u0438\u043f\u0442 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d \u0432:",
+            ["WeasisToolsSetupLaunched"] = "Setup \u0437\u0430\u043f\u0443\u0449\u0435\u043d \u2014 \u0434\u043e\u0436\u0434\u0438\u0442\u0435\u0441\u044c \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u0438\u044f, \u0437\u0430\u0442\u0435\u043c \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u0437\u0430\u043f\u0438\u0441\u044c.",
             // Import
             ["Import"] = "\u0418\u043c\u043f\u043e\u0440\u0442",
             ["ImportTitle"] = "\u0418\u043c\u043f\u043e\u0440\u0442 DICOM",
@@ -462,6 +476,13 @@ public static class LocalizationHelper
             ["EditCancel"] = "Cancel",
             ["EditSaving"] = "Saving...",
             ["EditSavedMsg"] = "Metadata saved: {0} files",
+            // Weasis tools check
+            ["WeasisToolsTitle"] = "Weasis Portable Missing",
+            ["WeasisToolsMissing"] = "Weasis Portable (DICOM viewer + JRE) was not found.\nIt is required to create DVD discs with an integrated viewer.",
+            ["WeasisToolsSetupPath"] = "Download script:",
+            ["WeasisToolsRunSetup"] = "Would you like to run the automatic download now?\n(Requires administrator rights, ~500 MB download)",
+            ["WeasisToolsNotFound"] = "Download script not found in:",
+            ["WeasisToolsSetupLaunched"] = "Setup launched — wait for the download to finish, then retry the burn.",
             // Import
             ["Import"] = "Import",
             ["ImportTitle"] = "Import DICOM",

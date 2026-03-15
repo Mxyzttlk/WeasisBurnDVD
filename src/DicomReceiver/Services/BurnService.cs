@@ -139,7 +139,7 @@ public class BurnService
 
         Log($"Launching burn: {Path.GetFileName(burnScript)} -ZipPath \"{Path.GetFileName(zipPath)}\"");
 
-        var args = $"-ExecutionPolicy Bypass -File \"{burnScript}\" -ZipPath \"{zipPath}\" -BurnSpeed {settings.BurnSpeed}";
+        var args = $"-sta -ExecutionPolicy Bypass -File \"{burnScript}\" -ZipPath \"{zipPath}\" -BurnSpeed {settings.BurnSpeed}";
         if (!string.IsNullOrEmpty(settings.SelectedDriveId))
             args += $" -DriveID \"{settings.SelectedDriveId}\"";
         if (settings.SimulateOnly)
@@ -325,7 +325,7 @@ public class BurnService
             study.StatusText = "Burning...";
             Log($"Launching burn: {Path.GetFileName(burnScript)}");
 
-            var args = $"-ExecutionPolicy Bypass -File \"{burnScript}\" -DicomFolder \"{study.StoragePath}\" -BurnSpeed {settings.BurnSpeed}";
+            var args = $"-sta -ExecutionPolicy Bypass -File \"{burnScript}\" -DicomFolder \"{study.StoragePath}\" -BurnSpeed {settings.BurnSpeed}";
             if (!string.IsNullOrEmpty(settings.SelectedDriveId))
                 args += $" -DriveID \"{settings.SelectedDriveId}\"";
             if (settings.SimulateOnly)
@@ -608,7 +608,7 @@ public class BurnService
 
             Log($"Launching burn: {Path.GetFileName(burnScript)} ({studies.Count} studies)");
 
-            var args = $"-ExecutionPolicy Bypass -File \"{burnScript}\" -DicomFolder \"{stagingDir}\" -BurnSpeed {settings.BurnSpeed}";
+            var args = $"-sta -ExecutionPolicy Bypass -File \"{burnScript}\" -DicomFolder \"{stagingDir}\" -BurnSpeed {settings.BurnSpeed}";
             if (!string.IsNullOrEmpty(settings.SelectedDriveId))
                 args += $" -DriveID \"{settings.SelectedDriveId}\"";
             if (settings.SimulateOnly)
@@ -1216,6 +1216,26 @@ public class BurnService
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Checks if Weasis portable + JRE are available in tools/.
+    /// Returns (isAvailable, weasisDir, setupScriptPath).
+    /// </summary>
+    public static (bool IsAvailable, string WeasisDir, string SetupScript) CheckWeasisTools()
+    {
+        var projectRoot = FindProjectRoot();
+        if (projectRoot == null)
+            return (false, "", "");
+
+        var weasisDir = Path.Combine(projectRoot, "tools", "weasis-portable");
+        var setupScript = Path.Combine(projectRoot, "scripts", "setup.ps1");
+        var launcherJar = Path.Combine(weasisDir, "weasis-launcher.jar");
+        var jreX86 = Path.Combine(weasisDir, "jre", "windows", "bin", "java.exe");
+        var jreX64 = Path.Combine(weasisDir, "jre", "windows-x64", "bin", "java.exe");
+
+        bool hasWeasis = File.Exists(launcherJar) && (File.Exists(jreX86) || File.Exists(jreX64));
+        return (hasWeasis, weasisDir, setupScript);
     }
 
     private static string? FindProjectRoot()

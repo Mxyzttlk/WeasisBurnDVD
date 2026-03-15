@@ -391,8 +391,12 @@ public partial class SettingsDialog : Window
         {
             // InvalidOperationException can mean: service not installed OR service failed to start
             var inner = ex.InnerException?.Message ?? ex.Message;
-            MessageBox.Show($"{L("ServiceRestartFailed")}\n\n{inner}", L("RestartService"),
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            // Check if service actually exists — "Cannot open" means not installed
+            bool notInstalled = inner.Contains("Cannot open", StringComparison.OrdinalIgnoreCase)
+                || inner.Contains("was not found", StringComparison.OrdinalIgnoreCase);
+            var msg = notInstalled ? L("ServiceNotInstalled") : $"{L("ServiceRestartFailed")}\n\n{inner}";
+            MessageBox.Show(msg, L("RestartService"),
+                MessageBoxButton.OK, notInstalled ? MessageBoxImage.Information : MessageBoxImage.Warning);
         }
         catch (Exception ex)
         {

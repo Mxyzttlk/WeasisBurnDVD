@@ -271,6 +271,62 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         IsRunning = false;
     }
 
+    /// <summary>
+    /// Checks if Weasis tools are available. If not, shows a dialog with
+    /// clear instructions and a button to run setup.ps1.
+    /// Returns true if tools are ready, false if burn should be cancelled.
+    /// </summary>
+    private bool CheckAndOfferSetup()
+    {
+        var (isAvailable, _, setupScript) = BurnService.CheckWeasisTools();
+        if (isAvailable) return true;
+
+        var setupExists = File.Exists(setupScript);
+        var installDir = Path.GetDirectoryName(setupScript) is string s
+            ? Path.GetDirectoryName(s) ?? ""
+            : "";
+
+        var message = L("WeasisToolsMissing") + "\n\n";
+        if (setupExists)
+        {
+            message += L("WeasisToolsSetupPath") + "\n" + setupScript + "\n\n";
+            message += L("WeasisToolsRunSetup");
+        }
+        else
+        {
+            message += L("WeasisToolsNotFound") + "\n" + installDir;
+        }
+
+        var result = setupExists
+            ? MessageBox.Show(message, L("WeasisToolsTitle"),
+                MessageBoxButton.YesNo, MessageBoxImage.Warning)
+            : MessageBox.Show(message, L("WeasisToolsTitle"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+
+        if (result == MessageBoxResult.Yes && setupExists)
+        {
+            try
+            {
+                // Launch setup.ps1 in a visible PowerShell window
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $"-ExecutionPolicy Bypass -NoProfile -File \"{setupScript}\"",
+                    UseShellExecute = true, // visible window
+                    Verb = "runas" // run as administrator (needed for Program Files)
+                };
+                System.Diagnostics.Process.Start(psi);
+                AddLog(L("WeasisToolsSetupLaunched"));
+            }
+            catch (Exception ex)
+            {
+                AddLog($"Setup launch failed: {ex.Message}");
+            }
+        }
+
+        return false;
+    }
+
     private void EditStudy(object? param)
     {
         if (param is not ReceivedStudy study) return;
@@ -321,6 +377,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         if (param is not ReceivedStudy study) return;
         if (study.Status != StudyStatus.Complete) return;
 
+        // Check Weasis tools before attempting burn
+        if (!CheckAndOfferSetup()) return;
+
         // Set Burning IMMEDIATELY (before any await) to prevent double-click race
         study.Status = StudyStatus.Burning;
 
@@ -354,6 +413,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
             .ToList();
 
         if (selected.Count == 0) return;
+
+        // Check Weasis tools before attempting burn
+        if (!CheckAndOfferSetup()) return;
 
         try
         {
@@ -974,6 +1036,13 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         {
             await _dispatcher.InvokeAsync(async () =>
             {
+                // Check Weasis tools before attempting burn
+                if (!CheckAndOfferSetup())
+                {
+                    pacsVm.OnBurnCompleted(false);
+                    return;
+                }
+
                 AddLog($"PACS burn: {Path.GetFileName(zipPath)}");
                 try
                 {
