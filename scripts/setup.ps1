@@ -12,6 +12,30 @@ $ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Pa
 $ToolsDir    = Join-Path $ProjectRoot "tools"
 $WeasisDir   = Join-Path $ToolsDir "weasis-portable"
 
+# Show paths immediately so user sees where files will go
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "  DICOM Receiver — Setup Tools" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  Locatie instalare: $ProjectRoot" -ForegroundColor White
+Write-Host "  Folder tools:     $ToolsDir" -ForegroundColor White
+Write-Host ""
+
+# Verify we can write to tools dir
+try {
+    New-Item -ItemType Directory -Path $ToolsDir -Force | Out-Null
+    $testFile = Join-Path $ToolsDir ".write-test"
+    [System.IO.File]::WriteAllText($testFile, "test")
+    Remove-Item $testFile -Force
+} catch {
+    Write-Host "  [EROARE] Nu am drepturi de scriere in: $ToolsDir" -ForegroundColor Red
+    Write-Host "  Ruleaza scriptul ca Administrator (click dreapta -> Run as Administrator)" -ForegroundColor Yellow
+    Write-Host ""
+    Read-Host "  Apasa ENTER pentru a inchide"
+    exit 1
+}
+
 function Write-Status($msg) {
     Write-Host ""
     Write-Host ">>> $msg" -ForegroundColor Cyan
@@ -30,6 +54,8 @@ function Download-File {
     Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -MaximumRedirection 20
     $ProgressPreference = 'Continue'
 }
+
+try {
 
 # ============================================================================
 # Step 1: Download Weasis Portable 3.7.1
@@ -88,8 +114,7 @@ if (-not (Test-Path $WeasisDir)) {
         if (Test-Path $customPath) {
             $foundZip = $customPath
         } else {
-            Write-Host "    [EROARE] Fisierul nu exista: $customPath" -ForegroundColor Red
-            exit 1
+            throw "Fisierul nu exista: $customPath"
         }
     }
 
@@ -149,8 +174,7 @@ if (Test-Path (Join-Path $jreWindowsDir "bin\java.exe")) {
             if (Test-Path $customPath) {
                 Copy-Item -Path $customPath -Destination $jreZipPath -Force
             } else {
-                Write-Host "    [EROARE] Fisierul nu exista." -ForegroundColor Red
-                exit 1
+                throw "Fisierul nu exista."
             }
         }
     }
@@ -213,8 +237,7 @@ if (Test-Path (Join-Path $jreWindowsX64Dir "bin\java.exe")) {
             if (Test-Path $customPath) {
                 Copy-Item -Path $customPath -Destination $jreX64ZipPath -Force
             } else {
-                Write-Host "    [EROARE] Fisierul nu exista." -ForegroundColor Red
-                exit 1
+                throw "Fisierul nu exista."
             }
         }
     }
@@ -278,8 +301,7 @@ if ((Test-Path $wv2CoreDll) -and (Test-Path $wv2WpfDll) -and (Test-Path $wv2Load
             if (Test-Path $customPath) {
                 Copy-Item -Path $customPath -Destination $wv2ZipPath -Force
             } else {
-                Write-Host "    [EROARE] Fisierul nu exista." -ForegroundColor Red
-                exit 1
+                throw "Fisierul nu exista."
             }
         }
     }
@@ -442,8 +464,7 @@ if (Test-Path $dcmmkdirExe) {
             if (Test-Path $customPath) {
                 Copy-Item -Path $customPath -Destination $dcmtkZipPath -Force
             } else {
-                Write-Host "    [EROARE] Fisierul nu exista." -ForegroundColor Red
-                exit 1
+                throw "Fisierul nu exista."
             }
         }
     }
@@ -489,19 +510,32 @@ $checks = @(
     @{ Path = (Join-Path $ToolsDir "webview2\Microsoft.Web.WebView2.Core.dll"); Name = "webview2/Core.dll (WebView2 SDK)" },
     @{ Path = (Join-Path $ToolsDir "webview2\Microsoft.Web.WebView2.Wpf.dll"); Name = "webview2/Wpf.dll (WebView2 SDK)" },
     @{ Path = (Join-Path $ToolsDir "webview2\WebView2Loader.dll"); Name = "webview2/WebView2Loader.dll (native)" },
-    @{ Path = (Join-Path $ToolsDir "dcmtk\bin\dcmmkdir.exe"); Name = "dcmtk/bin/dcmmkdir.exe (DICOMDIR generator)" },
-    @{ Path = (Join-Path $ProjectRoot "templates\autorun.inf"); Name = "templates/autorun.inf" },
-    @{ Path = (Join-Path $ProjectRoot "templates\README.html"); Name = "templates/README.html" },
-    @{ Path = (Join-Path $ProjectRoot "burn.bat"); Name = "burn.bat" }
+    @{ Path = (Join-Path $ToolsDir "dcmtk\bin\dcmmkdir.exe"); Name = "dcmtk/bin/dcmmkdir.exe (DICOMDIR generator)" }
 )
+
+# Also check optional files (only exist in dev environment)
+$optionalChecks = @(
+    @{ Path = (Join-Path $ProjectRoot "templates\autorun.inf"); Name = "templates/autorun.inf" },
+    @{ Path = (Join-Path $ProjectRoot "templates\start-weasis.bat"); Name = "templates/start-weasis.bat" },
+    @{ Path = (Join-Path $ProjectRoot "scripts\burn-gui.ps1"); Name = "scripts/burn-gui.ps1" }
+)
+foreach ($opt in $optionalChecks) {
+    if (Test-Path $opt.Path) {
+        Write-Ok "$($opt.Name)"
+    }
+}
 
 $allGood = $true
 foreach ($check in $checks) {
     if (Test-Path $check.Path) {
         Write-Ok $check.Name
     } else {
-        Write-Host "    [LIPSA] $($check.Name)" -ForegroundColor Red
-        $allGood = $false
+        # WebView2 SDK is optional (only for PACS browser)
+        $isOptional = $check.Name -match "webview2|WebView2"
+        $color = if ($isOptional) { "Yellow" } else { "Red" }
+        $tag = if ($isOptional) { "[OPTIONAL]" } else { "[LIPSA]" }
+        Write-Host "    $tag $($check.Name)" -ForegroundColor $color
+        if (-not $isOptional) { $allGood = $false }
     }
 }
 
@@ -518,12 +552,30 @@ if ($allGood) {
     Write-Host "  SETUP COMPLET!" -ForegroundColor Green
     Write-Host "============================================" -ForegroundColor Green
     Write-Host ""
-    Write-Host "  Poti folosi:" -ForegroundColor White
-    Write-Host "    burn.bat       - Trage un ZIP peste el (sau: burn.bat cale\fisier.zip)" -ForegroundColor White
-    Write-Host "    app\pacs-burner.bat - Aplicatia PACS Burner cu browser integrat" -ForegroundColor White
+    Write-Host "  Tools descarcate in: $ToolsDir" -ForegroundColor White
+    Write-Host "  Acum puteti arde discuri DVD din aplicatia DICOM Receiver." -ForegroundColor White
     Write-Host ""
 } else {
     Write-Host ""
-    Write-Host "  SETUP INCOMPLET - rezolva problemele de mai sus" -ForegroundColor Red
+    Write-Host "  SETUP INCOMPLET - rezolvati problemele de mai sus" -ForegroundColor Red
+    Write-Host "  Fisierele lipsa nu sunt critice pentru functionarea de baza." -ForegroundColor Yellow
     Write-Host ""
 }
+
+} catch {
+    Write-Host ""
+    Write-Host "============================================" -ForegroundColor Red
+    Write-Host "  EROARE!" -ForegroundColor Red
+    Write-Host "============================================" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ""
+    if ($_.ScriptStackTrace) {
+        Write-Host "  Locatie eroare:" -ForegroundColor Yellow
+        Write-Host "  $($_.ScriptStackTrace)" -ForegroundColor Gray
+    }
+    Write-Host ""
+}
+
+Write-Host ""
+Read-Host "Apasa ENTER pentru a inchide"
