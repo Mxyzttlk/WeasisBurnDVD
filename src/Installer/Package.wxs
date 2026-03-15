@@ -19,8 +19,8 @@
 
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
-    <!-- UI with install directory chooser -->
-    <ui:WixUI Id="WixUI_InstallDir" />
+    <!-- UI: Typical (quick, all features) / Custom (feature checkboxes + directory chooser) -->
+    <ui:WixUI Id="WixUI_Mondo" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
 
     <Icon Id="AppIcon" SourceFile="$(var.AppPublishDir)Resources\app.ico" />
@@ -57,24 +57,44 @@
     </StandardDirectory>
 
     <!-- Features -->
-    <Feature Id="F_Main" Title="DICOM Receiver" Level="1" AllowAbsent="no">
+    <Feature Id="F_Main" Title="DICOM Receiver" Description="Core application and Windows service" Level="1" AllowAbsent="no">
       <ComponentGroupRef Id="CG_App" />
       <ComponentGroupRef Id="CG_Service" />
       <ComponentGroupRef Id="CG_Scripts" />
       <ComponentGroupRef Id="CG_Templates" />
-      <ComponentRef Id="C_Shortcuts" />
       <ComponentRef Id="C_CleanupDirs" />
     </Feature>
 
+    <Feature Id="F_DesktopShortcut" Title="Desktop Shortcut" Description="Create a shortcut on the Desktop" Level="1">
+      <ComponentRef Id="C_DesktopShortcut" />
+    </Feature>
+
+    <Feature Id="F_StartMenuShortcut" Title="Start Menu Shortcut" Description="Create a shortcut in the Start Menu" Level="1">
+      <ComponentRef Id="C_StartMenuShortcut" />
+    </Feature>
+
     <?if $(var.IncludeTools) = true ?>
-    <Feature Id="F_Tools" Title="Bundled Tools (Weasis, JRE, dcmtk)" Level="1">
+    <Feature Id="F_Tools" Title="Bundled Tools (Weasis, JRE, dcmtk)" Description="Weasis viewer, JRE, and dcmtk tools (offline)" Level="1">
       <ComponentGroupRef Id="CG_Tools" />
     </Feature>
     <?endif?>
 
-    <!-- Shortcuts -->
+    <!-- Desktop shortcut -->
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="C_DesktopShortcut" Guid="c5d1e2f3-4a6b-7c8d-9e0f-1a2b3c4d5e6f">
+        <Shortcut Id="SC_Desktop"
+                  Name="DICOM Receiver"
+                  Target="[INSTALLFOLDER]DicomReceiver.exe"
+                  Icon="AppIcon"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\DicomReceiver" Name="desktopShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- Start Menu shortcuts -->
     <DirectoryRef Id="ProgramMenuDir">
-      <Component Id="C_Shortcuts" Guid="a3f8e1d2-7b4c-4a9e-8f3d-2c1b5e6a7d8f">
+      <Component Id="C_StartMenuShortcut" Guid="a3f8e1d2-7b4c-4a9e-8f3d-2c1b5e6a7d8f">
         <Shortcut Id="SC_App"
                   Name="DICOM Receiver"
                   Target="[INSTALLFOLDER]DicomReceiver.exe"

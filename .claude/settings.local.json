@@ -149,7 +149,8 @@
       "Bash(curl -L -o \"E:/Weasis Burn/src/Bundle/prereqs/windowsdesktop-runtime-8.0.14-win-x64.exe\" \"https://download.visualstudio.microsoft.com/download/pr/64760cc4-228f-48e4-b57d-55f882dedc69/b181f927cb937ef06fbb6eb41e81fbd0/windowsdesktop-runtime-8.0.14-win-x64.exe\")",
       "Bash(dotnet clean:*)",
       "Bash(dotnet --list-runtimes)",
-      "Bash(reg query:*)"
+      "Bash(reg query:*)",
+      "Bash(powershell -NoProfile -Command ':*)"
     ]
   }
 }

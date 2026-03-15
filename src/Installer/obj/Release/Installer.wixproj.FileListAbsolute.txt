@@ -1,6 +1,6 @@
-E:\Weasis Burn\src\Installer\bin\Release\DicomReceiver-Setup-Online.msi
-E:\Weasis Burn\src\Installer\bin\Release\DicomReceiver-Setup-Online.wixpdb
+E:\Weasis Burn\src\Installer\bin\Release\DicomReceiver-Setup-Offline.msi
+E:\Weasis Burn\src\Installer\bin\Release\DicomReceiver-Setup-Offline.wixpdb
 E:\Weasis Burn\src\Installer\obj\Release\Installer.wixproj.CoreCompileInputs.cache
-E:\Weasis Burn\src\Installer\obj\Release\DicomReceiver-Setup-Online.msi
-E:\Weasis Burn\src\Installer\obj\Release\DicomReceiver-Setup-Online.wixpdb
+E:\Weasis Burn\src\Installer\obj\Release\DicomReceiver-Setup-Offline.msi
+E:\Weasis Burn\src\Installer\obj\Release\DicomReceiver-Setup-Offline.wixpdb
 E:\Weasis Burn\src\Installer\obj\Release\Installer.wixproj.BindTracking-neutral.txt

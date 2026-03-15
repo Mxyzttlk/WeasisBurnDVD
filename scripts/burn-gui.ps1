@@ -1086,10 +1086,19 @@ try{Remove-Item $MyInvocation.MyCommand.Path -Force}catch{}
                     Start-Process powershell -ArgumentList "-NoProfile","-WindowStyle","Hidden","-ExecutionPolicy","Bypass","-File",$killerScript -WindowStyle Hidden
                 } catch {}
 
-                # Eject via Win32 (LOCK → DISMOUNT → EJECT)
+                # Eject: DisableMcn BEFORE eject prevents Windows Shell from caching
+                # the volume label on the now-empty drive (ghost label bug).
                 UpdateStatus ($s.Ejecting)
                 Log "[..] $($s.Ejecting)" 95
                 if ($ejectDrive) {
+                    # Suppress Media Change Notification so Windows doesn't detect the eject
+                    $mcnRec = $null
+                    try {
+                        $mcnRec = New-Object -ComObject IMAPI2.MsftDiscRecorder2
+                        $mcnRec.InitializeDiscRecorder($sync.DriveId)
+                        $mcnRec.DisableMcn()
+                    } catch {}
+
                     try {
                         if (-not ([System.Management.Automation.PSTypeName]'DriveEject').Type) {
                             Add-Type @"
@@ -1117,15 +1126,17 @@ public class DriveEject {
                         }
                         [DriveEject]::Eject($ejectDrive)
                     } catch {
-                        try {
-                            $fallbackRec = New-Object -ComObject IMAPI2.MsftDiscRecorder2
-                            $fallbackRec.InitializeDiscRecorder($sync.DriveId)
-                            $fallbackRec.DisableMcn()
-                            $fallbackRec.EjectMedia()
-                            $fallbackRec.EnableMcn()
-                            [System.Runtime.InteropServices.Marshal]::ReleaseComObject($fallbackRec) | Out-Null
-                        } catch {}
+                        # Win32 eject failed, try IMAPI2 eject
+                        try { $mcnRec.EjectMedia() } catch {}
                     }
+
+                    # Re-enable MCN and release
+                    try {
+                        if ($mcnRec) {
+                            $mcnRec.EnableMcn()
+                            [System.Runtime.InteropServices.Marshal]::ReleaseComObject($mcnRec) | Out-Null
+                        }
+                    } catch {}
                 }
 
                 Log "[OK] $($s.Success)" 97

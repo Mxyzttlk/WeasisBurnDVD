@@ -387,14 +387,16 @@ public partial class SettingsDialog : Window
             MessageBox.Show(L("ServiceRestarted"), L("RestartService"),
                 MessageBoxButton.OK, MessageBoxImage.Information);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
-            MessageBox.Show(L("ServiceNotInstalled"), L("RestartService"),
+            // InvalidOperationException can mean: service not installed OR service failed to start
+            var inner = ex.InnerException?.Message ?? ex.Message;
+            MessageBox.Show($"{L("ServiceRestartFailed")}\n\n{inner}", L("RestartService"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"{L("ServiceRestartFailed")}: {ex.Message}", L("RestartService"),
+            MessageBox.Show($"{L("ServiceRestartFailed")}\n\n{ex.Message}", L("RestartService"),
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
