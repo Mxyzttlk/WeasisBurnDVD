@@ -220,6 +220,12 @@ public class PacsViewModel : ObservableObject, IDisposable
         // Persist lastNetwork to disk (like PS version)
         try { _settingsService.Save(_settings); } catch { }
 
+        // Reset buttons — previous downloads are abandoned by navigation
+        CancelActiveDownloads();
+        CanBurnDvd = true;
+        CanImport = true;
+        DownloadInfo = "";
+
         StatusText = string.Format(L("PacsConnecting"), net.Name);
         StatusColor = "#FFA500"; // orange
 
@@ -856,6 +862,16 @@ public class PacsViewModel : ObservableObject, IDisposable
     }
 
     private static string L(string key) => LocalizationHelper.Get(key);
+
+    private void CancelActiveDownloads()
+    {
+        foreach (var (op, tracker) in new List<KeyValuePair<CoreWebView2DownloadOperation, DownloadTracker>>(_activeDownloads))
+        {
+            try { op.Cancel(); } catch { }
+            try { CleanupDownloadHandlers(op, tracker); } catch { }
+        }
+        _activeDownloads.Clear();
+    }
 
     private void Log(string message)
     {
