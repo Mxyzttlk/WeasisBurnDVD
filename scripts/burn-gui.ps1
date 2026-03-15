@@ -808,7 +808,9 @@ $workerScript = {
             $configPath2 = Join-Path $contentDir "conf\config.properties"
             if (Test-Path $configPath2) {
                 $configContent2 = [System.IO.File]::ReadAllText($configPath2, [System.Text.Encoding]::UTF8)
-                $extraDirs2 = ($dicomRootFolders | ForEach-Object { "../$_" }) -join ","
+                # ../DIR000 works when running from disc (Weasis/ is one level down from disc root)
+                # DIR000 works when splash-loader copies to HDD (junction created in same temp dir)
+                $extraDirs2 = (($dicomRootFolders | ForEach-Object { "../$_" }) + ($dicomRootFolders)) -join ","
                 $oldLine2 = "weasis.portable.dicom.directory=dicom,DICOM,IMAGES,images"
                 $newLine2 = "weasis.portable.dicom.directory=dicom,DICOM,IMAGES,images,$extraDirs2"
                 $configContent2 = $configContent2.Replace($oldLine2, $newLine2)

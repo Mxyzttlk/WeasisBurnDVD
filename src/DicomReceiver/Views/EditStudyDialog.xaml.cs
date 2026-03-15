@@ -258,12 +258,14 @@ public partial class EditStudyDialog : Window
 
         try
         {
-            int count = await Task.Run(() => ApplyTagChanges(_study.StoragePath, changedTags));
-            SavedFileCount = count;
+            var result = await Task.Run(() => ApplyTagChanges(_study.StoragePath, changedTags));
+            SavedFileCount = result.ProcessedCount;
 
             // Update the ReceivedStudy model to reflect changes in UI
             if (changedTags.ContainsKey(DicomTag.PatientName))
                 _study.PatientName = FormatNameForDisplay(changedTags[DicomTag.PatientName]);
+            if (result.NewStudyInstanceUid != null)
+                _study.StudyInstanceUid = result.NewStudyInstanceUid;
             if (changedTags.ContainsKey(DicomTag.StudyDate))
             {
                 var raw = changedTags[DicomTag.StudyDate];
@@ -286,14 +288,90 @@ public partial class EditStudyDialog : Window
         }
     }
 
+    private record ApplyResult(int ProcessedCount, string? NewStudyInstanceUid);
+
+    /// <summary>
+    /// Computes date delta (days) between original and new StudyDate.
+    /// Returns 0 if dates are identical or cannot be parsed.
+    /// </summary>
+    private static int ComputeDateDeltaDays(string originalDicomDate, string newDicomDate)
+    {
+        if (originalDicomDate == newDicomDate) return 0;
+        if (originalDicomDate.Length != 8 || newDicomDate.Length != 8) return 0;
+        if (!DateTime.TryParseExact(originalDicomDate, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out var orig)) return 0;
+        if (!DateTime.TryParseExact(newDicomDate, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out var nw)) return 0;
+        return (int)(nw - orig).TotalDays;
+    }
+
+    /// <summary>
+    /// Shifts a DICOM date (YYYYMMDD) by deltaDays. Returns original if parsing fails.
+    /// </summary>
+    private static string ShiftDicomDate(string dicomDate, int deltaDays)
+    {
+        if (dicomDate.Length != 8) return dicomDate;
+        if (!DateTime.TryParseExact(dicomDate, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out var dt)) return dicomDate;
+        return dt.AddDays(deltaDays).ToString("yyyyMMdd");
+    }
+
+    /// <summary>
+    /// Shifts a DICOM datetime (YYYYMMDDHHMMSS.FFFFFF or shorter) by deltaDays.
+    /// Preserves the time portion. Returns original if parsing fails.
+    /// </summary>
+    private static string ShiftDicomDateTime(string dicomDt, int deltaDays)
+    {
+        if (dicomDt.Length < 8) return dicomDt;
+        var datePart = dicomDt[..8];
+        var timePart = dicomDt.Length > 8 ? dicomDt[8..] : "";
+        var shifted = ShiftDicomDate(datePart, deltaDays);
+        return shifted + timePart;
+    }
+
+    // Date tags that must be shifted when StudyDate changes
+    private static readonly DicomTag[] CascadeDateTags =
+    {
+        DicomTag.SeriesDate,
+        DicomTag.AcquisitionDate,
+        DicomTag.ContentDate,
+    };
+
     /// <summary>
     /// Applies tag changes to ALL DICOM files in the study folder.
+    /// When StudyDate changes, cascades date shift to SeriesDate, AcquisitionDate,
+    /// ContentDate, AcquisitionDateTime (preserving time components).
     /// Pattern identical to BurnService.ApplyPrivacyMode: ReadAll → modify → Save in-place.
     /// </summary>
-    private static int ApplyTagChanges(string studyPath, Dictionary<DicomTag, string> changedTags)
+    private static ApplyResult ApplyTagChanges(string studyPath, Dictionary<DicomTag, string> changedTags)
     {
         var dir = new DirectoryInfo(studyPath);
-        if (!dir.Exists) return 0;
+        if (!dir.Exists) return new ApplyResult(0, null);
+
+        // Check if patient identity changed — requires new UIDs for Siemens compatibility
+        bool regenerateUids = changedTags.ContainsKey(DicomTag.PatientName) ||
+                              changedTags.ContainsKey(DicomTag.PatientID);
+        string? newStudyUid = regenerateUids ? DicomUIDGenerator.GenerateDerivedFromUUID().UID : null;
+        // Per-series UID map (old → new) for consistency across files in same series
+        var seriesUidMap = new Dictionary<string, string>();
+
+        // Pre-compute date delta if StudyDate changed
+        int dateDelta = 0;
+        bool cascadeDates = false;
+        if (changedTags.TryGetValue(DicomTag.StudyDate, out var newStudyDate))
+        {
+            // Find original StudyDate from first DICOM file
+            foreach (var probe in dir.EnumerateFiles("*.*", SearchOption.AllDirectories))
+            {
+                if (!probe.Extension.Equals(".dcm", StringComparison.OrdinalIgnoreCase)) continue;
+                try
+                {
+                    var probeDcm = DicomFile.Open(probe.FullName, FileReadOption.SkipLargeTags);
+                    var origDate = probeDcm.Dataset.GetSingleValueOrDefault(DicomTag.StudyDate, "");
+                    dateDelta = ComputeDateDeltaDays(origDate, newStudyDate);
+                    cascadeDates = dateDelta != 0;
+                }
+                catch { /* skip */ }
+                break;
+            }
+        }
 
         int processed = 0;
 
@@ -311,8 +389,50 @@ public partial class EditStudyDialog : Window
                 var dcmFile = DicomFile.Open(file.FullName, FileReadOption.ReadAll);
                 var ds = dcmFile.Dataset;
 
+                // Cascade date shift BEFORE applying explicit changes (read originals first)
+                if (cascadeDates)
+                {
+                    foreach (var dateTag in CascadeDateTags)
+                    {
+                        var orig = ds.GetSingleValueOrDefault(dateTag, "");
+                        if (orig.Length == 8)
+                            ds.AddOrUpdate(dateTag, ShiftDicomDate(orig, dateDelta));
+                    }
+
+                    // AcquisitionDateTime (combined date+time, variable length)
+                    var origDt = ds.GetSingleValueOrDefault(DicomTag.AcquisitionDateTime, "");
+                    if (origDt.Length >= 8)
+                        ds.AddOrUpdate(DicomTag.AcquisitionDateTime, ShiftDicomDateTime(origDt, dateDelta));
+                }
+
+                // Apply explicitly changed tags (StudyDate, PatientName, etc.)
                 foreach (var (tag, value) in changedTags)
                     ds.AddOrUpdate(tag, value);
+
+                // Regenerate UIDs when patient identity changes
+                // Without this, Siemens stations reject import if old study with same UID exists
+                if (regenerateUids && newStudyUid != null)
+                {
+                    ds.AddOrUpdate(DicomTag.StudyInstanceUID, newStudyUid);
+
+                    // Map old SeriesInstanceUID → new (consistent per series)
+                    var oldSeriesUid = ds.GetSingleValueOrDefault(DicomTag.SeriesInstanceUID, "");
+                    if (!string.IsNullOrEmpty(oldSeriesUid))
+                    {
+                        if (!seriesUidMap.TryGetValue(oldSeriesUid, out var mappedSeriesUid))
+                        {
+                            mappedSeriesUid = DicomUIDGenerator.GenerateDerivedFromUUID().UID;
+                            seriesUidMap[oldSeriesUid] = mappedSeriesUid;
+                        }
+                        ds.AddOrUpdate(DicomTag.SeriesInstanceUID, mappedSeriesUid);
+                    }
+
+                    // New SOPInstanceUID per file + update MediaStorageSOP in file meta
+                    var newSopUid = DicomUIDGenerator.GenerateDerivedFromUUID().UID;
+                    ds.AddOrUpdate(DicomTag.SOPInstanceUID, newSopUid);
+                    if (dcmFile.FileMetaInfo != null)
+                        dcmFile.FileMetaInfo.MediaStorageSOPInstanceUID = new DicomUID(newSopUid, "SOP Instance UID", DicomUidType.SOPInstance);
+                }
 
                 dcmFile.Save(file.FullName);
                 processed++;
@@ -323,7 +443,7 @@ public partial class EditStudyDialog : Window
             }
         }
 
-        return processed;
+        return new ApplyResult(processed, newStudyUid);
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)

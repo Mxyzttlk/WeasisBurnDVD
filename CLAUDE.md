@@ -1840,6 +1840,53 @@ Save scrie tag-urile modificate în TOATE fișierele DICOM ale studiului (patter
 
 #### Build: ✅ 0 erori, 0 warnings
 
+### SESSION 2026-03-14 (session 3 — branding legal, icon propriu, UI audit fixes):
+
+#### Analiză legală: denumire aplicație + icon Weasis
+- **Apache 2.0 Secțiunea 6**: nu acordă dreptul de a folosi trade names/trademarks/product names ale licențiatorului, cu excepția "reasonable and customary use in describing the origin of the Work"
+- **"Weasis Burn" ca nume aplicație** — risc: implică produs oficial Weasis sau afiliere
+- **Icon Weasis ca icon DicomReceiver.exe** — risc: creează confuzie, element de identitate vizuală
+- **Pe disc (viewer-win32.exe)** — OK, acolo chiar lansează Weasis
+
+#### Recomandări implementate:
+1. **Numele aplicației**: `"DICOM Receiver"` (fără "Weasis Burn" în titlu)
+   - Weasis menționat doar în contexte descriptive/atribuire (README, About)
+2. **Icon propriu**: `Resources/app.ico` — design radiologic, distinct de Weasis
+3. **Pe disc**: păstrat iconul Weasis pe `viewer-win32.exe` (corect — acolo e Weasis)
+
+#### Icon nou: design radiologie
+- **Concept**: cerc albastru închis (navy gradient) + simbol trefoil radiologic (3 pale cyan) + mic disc DVD portocaliu (colț dreapta-jos)
+- **Trefoil-ul** = simbolul universal al radiologiei/radiației — recunoscut instant de personalul medical
+- **Disc DVD portocaliu** = referință la funcționalitatea de burn
+- **4 rezoluții**: 16×16, 32×32, 48×48, 256×256 (standard ICO multi-resolution)
+- **Script generator**: `scripts/generate-icon.ps1` — System.Drawing, reproducibil
+
+#### Fișiere noi:
+- **`scripts/generate-icon.ps1`** — generator icon PowerShell (System.Drawing), produce ICO multi-size
+- **`src/DicomReceiver/Resources/app.ico`** — icon nou radiologic (înlocuiește weasis.ico)
+- **`src/DicomReceiver/Resources/app-preview.png`** — preview 256px PNG
+
+#### Fișiere modificate:
+- **`DicomReceiver.csproj`**:
+  - `ApplicationIcon` → `Resources\app.ico` (era `weasis.ico`)
+  - `Description` → `"DICOM Receiver — medical imaging study receiver and DVD burn tool"` (era "for Weasis Burn")
+  - `CopyToOutputDirectory` → `Resources\app.ico`
+- **`Helpers/LocalizationHelper.cs`**:
+  - `AppTitle` RO/RU/EN: `"DICOM Receiver"` (era `"DICOM Receiver — Weasis Burn"`)
+
+#### Audit fix-uri din sesiune anterioară (implementate):
+- **Timer recreation leak** (PacsViewModel): `_autoTimer`/`_modalTimer` create o singură dată în constructor, refolosite cu Stop()/Start()
+- **Brush allocation** (PacsBrowserView): pre-created frozen brush cache pentru 4 culori cunoscute StatusColor
+- **FolderBrowserDialog dispose** (SettingsDialog): adăugat `using`
+- **Redundant NTFS enumeration** (ImportService): eliminat dubla enumerare `*.dcm`+`*.DCM`
+
+#### UI layout (implementat):
+- Settings + Stop/Start butoane mutate la nivel fereastră (top-right overlay, Panel.ZIndex=10, vizibile pe ambele tab-uri)
+- Action column: DockPanel — Anonymize+Edit stânga, X dreapta, Burn stretch centru
+- Window size persistence: AppSettings.WindowWidth/Height, save la Window_Closing, restore în constructor
+
+#### Build: ✅ 0 erori, 0 warnings
+
 ## Hardware
 - Work: internal DVD writer
 - Home: external USB DVD writer (MATSHITA DVD-RAM UJ862AS)
