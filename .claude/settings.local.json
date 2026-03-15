@@ -116,7 +116,8 @@
       "Bash(dotnet build:*)",
       "Bash(dotnet run:*)",
       "Read(//c/Users/Fucking_User/.nuget/packages/fo-dicom/5.1.3/lib/net8.0-windows7.0/**)",
-      "Bash(find ~/.nuget/packages/fo-dicom/5.1.3/ -name *.xml)"
+      "Bash(find ~/.nuget/packages/fo-dicom/5.1.3/ -name *.xml)",
+      "Bash(find 'E:\\\\Weasis Burn' -type f \\\\\\(-name *.md -o -name *.txt -o -name README* \\\\\\))"
     ]
   }
 }

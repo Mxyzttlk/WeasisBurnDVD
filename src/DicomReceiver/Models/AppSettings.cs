@@ -15,7 +15,7 @@ public class AppSettings
     public string AeTitle { get; set; } = "WEASIS_BURN";
     public int Port { get; set; } = 4006;
     public string IncomingFolder { get; set; } = "";
-    public int StudyTimeoutSeconds { get; set; } = 30;
+    public int StudyTimeoutSeconds { get; set; } = 90;
 
     // Burn settings
     public int BurnSpeed { get; set; } = 4;

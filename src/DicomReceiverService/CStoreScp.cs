@@ -15,6 +15,7 @@ public class FileReceivedEventArgs : EventArgs
     public required string StudyDate { get; init; }
     public required string Modality { get; init; }
     public required string SeriesInstanceUid { get; init; }
+    public string SeriesDescription { get; init; } = "";
     public required string FilePath { get; init; }
     public required long FileSize { get; init; }
 }
@@ -36,6 +37,17 @@ public class CStoreScp : DicomService, IDicomServiceProvider, IDicomCStoreProvid
     public Task OnReceiveAssociationRequestAsync(DicomAssociation association)
     {
         OnLog?.Invoke($"Association request from {association.CallingAE} @ {association.RemoteHost}:{association.RemotePort}");
+
+        // Validate Called AE Title matches our configured AE Title
+        if (!string.IsNullOrEmpty(ExpectedAeTitle) &&
+            !string.Equals(association.CalledAE, ExpectedAeTitle, StringComparison.OrdinalIgnoreCase))
+        {
+            OnLog?.Invoke($"[REJECTED] CalledAE '{association.CalledAE}' != configured '{ExpectedAeTitle}'");
+            return SendAssociationRejectAsync(
+                DicomRejectResult.Permanent,
+                DicomRejectSource.ServiceUser,
+                DicomRejectReason.CalledAENotRecognized);
+        }
 
         foreach (var pc in association.PresentationContexts)
         {
@@ -84,6 +96,7 @@ public class CStoreScp : DicomService, IDicomServiceProvider, IDicomCStoreProvid
             var patientId = dataset.GetSingleValueOrDefault(DicomTag.PatientID, "");
             var studyDate = dataset.GetSingleValueOrDefault(DicomTag.StudyDate, "");
             var modality = dataset.GetSingleValueOrDefault(DicomTag.Modality, "OT");
+            var seriesDescription = dataset.GetSingleValueOrDefault(DicomTag.SeriesDescription, "");
 
             // Save to: incoming/{StudyUID}/{SeriesUID}/{SOPUID}.dcm
             var studyDir = Path.Combine(IncomingFolder, studyUid);
@@ -103,6 +116,7 @@ public class CStoreScp : DicomService, IDicomServiceProvider, IDicomCStoreProvid
                 StudyDate = studyDate,
                 Modality = modality,
                 SeriesInstanceUid = seriesUid,
+                SeriesDescription = seriesDescription,
                 FilePath = filePath,
                 FileSize = fileSize
             });

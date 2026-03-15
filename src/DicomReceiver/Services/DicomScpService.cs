@@ -88,6 +88,17 @@ public class CStoreScp : DicomService, IDicomServiceProvider, IDicomCStoreProvid
     {
         OnLog?.Invoke($"Association request from {association.CallingAE} @ {association.RemoteHost}:{association.RemotePort}");
 
+        // Validate Called AE Title matches our configured AE Title
+        if (!string.IsNullOrEmpty(ExpectedAeTitle) &&
+            !string.Equals(association.CalledAE, ExpectedAeTitle, StringComparison.OrdinalIgnoreCase))
+        {
+            OnLog?.Invoke($"[REJECTED] CalledAE '{association.CalledAE}' != configured '{ExpectedAeTitle}'");
+            return SendAssociationRejectAsync(
+                DicomRejectResult.Permanent,
+                DicomRejectSource.ServiceUser,
+                DicomRejectReason.CalledAENotRecognized);
+        }
+
         // Accept all presentation contexts (all SOP classes + transfer syntaxes)
         foreach (var pc in association.PresentationContexts)
         {

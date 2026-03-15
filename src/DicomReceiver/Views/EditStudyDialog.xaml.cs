@@ -16,22 +16,6 @@ public partial class EditStudyDialog : Window
 
     private static string L(string key) => LocalizationHelper.Get(key);
 
-    // Tags we display and allow editing
-    private static readonly (DicomTag tag, string fieldName)[] EditableTags =
-    {
-        (DicomTag.PatientName, "PatientName"),
-        (DicomTag.PatientID, "PatientID"),
-        (DicomTag.PatientBirthDate, "BirthDate"),
-        (DicomTag.PatientSex, "Sex"),
-        (DicomTag.PatientAge, "Age"),
-        (DicomTag.StudyDate, "StudyDate"),
-        (DicomTag.StudyDescription, "StudyDesc"),
-        (DicomTag.AccessionNumber, "Accession"),
-        (DicomTag.StudyID, "StudyID"),
-        (DicomTag.ReferringPhysicianName, "Physician"),
-        (DicomTag.InstitutionName, "Institution"),
-    };
-
     public int SavedFileCount { get; private set; }
 
     public EditStudyDialog(ReceivedStudy study)
@@ -261,6 +245,16 @@ public partial class EditStudyDialog : Window
             var result = await Task.Run(() => ApplyTagChanges(_study.StoragePath, changedTags));
             SavedFileCount = result.ProcessedCount;
 
+            // Show warnings if any files failed
+            if (result.FailedCount > 0)
+            {
+                var errMsg = $"Modified {result.ProcessedCount} files, but {result.FailedCount} failed:\n\n"
+                    + string.Join("\n", result.Errors.Count > 10
+                        ? [..result.Errors.GetRange(0, 10), $"... and {result.Errors.Count - 10} more"]
+                        : result.Errors);
+                MessageBox.Show(errMsg, "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+
             // Update the ReceivedStudy model to reflect changes in UI
             if (changedTags.ContainsKey(DicomTag.PatientName))
                 _study.PatientName = FormatNameForDisplay(changedTags[DicomTag.PatientName]);
@@ -288,7 +282,7 @@ public partial class EditStudyDialog : Window
         }
     }
 
-    private record ApplyResult(int ProcessedCount, string? NewStudyInstanceUid);
+    private record ApplyResult(int ProcessedCount, int FailedCount, string? NewStudyInstanceUid, List<string> Errors);
 
     /// <summary>
     /// Computes date delta (days) between original and new StudyDate.
@@ -343,7 +337,7 @@ public partial class EditStudyDialog : Window
     private static ApplyResult ApplyTagChanges(string studyPath, Dictionary<DicomTag, string> changedTags)
     {
         var dir = new DirectoryInfo(studyPath);
-        if (!dir.Exists) return new ApplyResult(0, null);
+        if (!dir.Exists) return new ApplyResult(0, 0, null, []);
 
         // Check if patient identity changed — requires new UIDs for Siemens compatibility
         bool regenerateUids = changedTags.ContainsKey(DicomTag.PatientName) ||
@@ -374,6 +368,8 @@ public partial class EditStudyDialog : Window
         }
 
         int processed = 0;
+        int failed = 0;
+        var errors = new List<string>();
 
         // Single pass: enumerate all files, filter .dcm case-insensitive
         // Avoids NTFS double-processing bug (*.DCM and *.dcm match same files)
@@ -388,6 +384,9 @@ public partial class EditStudyDialog : Window
                 // Required for in-place Save() — otherwise file is still locked.
                 var dcmFile = DicomFile.Open(file.FullName, FileReadOption.ReadAll);
                 var ds = dcmFile.Dataset;
+
+                // Remember original file size for validation
+                var originalSize = file.Length;
 
                 // Cascade date shift BEFORE applying explicit changes (read originals first)
                 if (cascadeDates)
@@ -435,15 +434,43 @@ public partial class EditStudyDialog : Window
                 }
 
                 dcmFile.Save(file.FullName);
+
+                // Post-save validation: verify file is still valid DICOM
+                var savedSize = new FileInfo(file.FullName).Length;
+                if (savedSize < 132)
+                {
+                    // File truncated — Save() produced empty/corrupt file
+                    failed++;
+                    errors.Add($"TRUNCATED after save: {file.Name} ({savedSize} bytes, was {originalSize})");
+                    continue;
+                }
+
+                // Verify DICM preamble still present
+                using (var fs = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    var header = new byte[132];
+                    if (fs.Read(header, 0, 132) == 132)
+                    {
+                        var magic = System.Text.Encoding.ASCII.GetString(header, 128, 4);
+                        if (magic != "DICM")
+                        {
+                            failed++;
+                            errors.Add($"INVALID DICM header after save: {file.Name}");
+                            continue;
+                        }
+                    }
+                }
+
                 processed++;
             }
-            catch
+            catch (Exception ex)
             {
-                // Skip files that can't be modified (e.g., locked)
+                failed++;
+                errors.Add($"{file.Name}: {ex.Message}");
             }
         }
 
-        return new ApplyResult(processed, newStudyUid);
+        return new ApplyResult(processed, failed, newStudyUid, errors);
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)

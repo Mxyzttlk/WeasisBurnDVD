@@ -208,6 +208,27 @@ public class BurnService
                 Log($"WARNING: Expected {study.ImageCount} images but found {dcmFiles.Count} on disk");
             }
 
+            // Spot-check DICOM file integrity (first, middle, last)
+            var spotCheckFiles = new List<FileInfo>();
+            if (dcmFiles.Count > 0) spotCheckFiles.Add(dcmFiles[0]);
+            if (dcmFiles.Count > 2) spotCheckFiles.Add(dcmFiles[dcmFiles.Count / 2]);
+            if (dcmFiles.Count > 1) spotCheckFiles.Add(dcmFiles[^1]);
+            foreach (var checkFile in spotCheckFiles)
+            {
+                try
+                {
+                    // Quick integrity: open with SkipLargeTags, verify required tags exist
+                    var probe = DicomFile.Open(checkFile.FullName, FileReadOption.SkipLargeTags);
+                    var sopUid = probe.Dataset.GetSingleValueOrDefault(DicomTag.SOPInstanceUID, "");
+                    if (string.IsNullOrEmpty(sopUid))
+                        Log($"WARNING: {checkFile.Name} missing SOPInstanceUID");
+                }
+                catch (Exception probeEx)
+                {
+                    Log($"WARNING: {checkFile.Name} not valid DICOM: {probeEx.Message}");
+                }
+            }
+
             // ============================================================
             // Find burn script
             // ============================================================

@@ -1103,7 +1103,7 @@ if ($script:usePacsDicomdir -and $script:dicomRootFolders.Count -gt 0) {
         $configContent = [System.IO.File]::ReadAllText($configPath, [System.Text.Encoding]::UTF8)
         # Add ../DIR000 (etc.) to weasis.portable.dicom.directory so Weasis finds files at disc root
         # ../DIR000 works from disc (Weasis/ is one level down); DIR000 works from HDD copy (splash-loader junction)
-        $extraDirs = (($script:dicomRootFolders | ForEach-Object { "../$_" }) + ($script:dicomRootFolders)) -join ","
+        $extraDirs = (@($script:dicomRootFolders | ForEach-Object { "../$_" }) + @($script:dicomRootFolders)) -join ","
         $oldLine = "weasis.portable.dicom.directory=dicom,DICOM,IMAGES,images"
         $newLine = "weasis.portable.dicom.directory=dicom,DICOM,IMAGES,images,$extraDirs"
         $configContent = $configContent.Replace($oldLine, $newLine)
