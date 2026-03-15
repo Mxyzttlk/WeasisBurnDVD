@@ -20,7 +20,7 @@
     <util:RegistrySearch
       Id="NetDesktopRuntime80Search"
       Root="HKLM"
-      Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
+      Key="SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
       Result="exists"
       Variable="NetRuntime80Installed" />
 

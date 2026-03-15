@@ -147,7 +147,9 @@
       "Bash(curl -L -o \"E:/Weasis Burn/src/Bundle/prereqs/windowsdesktop-runtime-8.0.14-win-x64.exe\" \"https://download.visualstudio.microsoft.com/download/pr/53728fca-0547-4569-a935-af57a3cd5637/1d08e33d49c227e56b12a5de1383d7d1/windowsdesktop-runtime-8.0.14-win-x64.exe\")",
       "WebSearch",
       "Bash(curl -L -o \"E:/Weasis Burn/src/Bundle/prereqs/windowsdesktop-runtime-8.0.14-win-x64.exe\" \"https://download.visualstudio.microsoft.com/download/pr/64760cc4-228f-48e4-b57d-55f882dedc69/b181f927cb937ef06fbb6eb41e81fbd0/windowsdesktop-runtime-8.0.14-win-x64.exe\")",
-      "Bash(dotnet clean:*)"
+      "Bash(dotnet clean:*)",
+      "Bash(dotnet --list-runtimes)",
+      "Bash(reg query:*)"
     ]
   }
 }

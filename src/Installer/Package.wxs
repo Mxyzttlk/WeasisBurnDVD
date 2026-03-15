@@ -31,7 +31,7 @@
     <Property Id="NETDESKTOPRUNTIME80">
       <RegistrySearch Id="NetDesktopRuntime80"
                       Root="HKLM"
-                      Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
+                      Key="SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
                       Type="raw" />
     </Property>
     <Launch Condition="Installed OR NETDESKTOPRUNTIME80"
