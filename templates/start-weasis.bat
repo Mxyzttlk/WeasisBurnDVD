@@ -1,9 +1,10 @@
 @echo off
 cd /d "%~dp0"
+set "_bvt=Q29weXJpZ2h0IDIwMjYgTXh5enR0bGs="
 
 REM ============================================================================
 REM  Weasis DICOM Viewer - Launch with GUI splash screen
-REM  Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+REM  Copyright (c) 2026 Mxyzttlk. All rights reserved.
 REM  Detects architecture, launches PowerShell WPF splash for copy & load.
 REM  Fallback: CMD-based direct DVD launch if PowerShell/WPF fails.
 REM ============================================================================

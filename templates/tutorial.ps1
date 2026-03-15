@@ -1,12 +1,13 @@
 # ============================================================================
 # Weasis DICOM Viewer - WPF Tutorial Window
-# Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+# Copyright (c) 2026 Mxyzttlk. All rights reserved.
 # Unauthorized copying, modification, or distribution is strictly prohibited.
 # ============================================================================
 
 param(
     [Parameter(Mandatory=$true)][string]$DiscPath
 )
+$_bvt = "Q29weXJpZ2h0IDIwMjYgTXh5enR0bGs="
 
 # Normalize DiscPath (removes trailing "\." from BAT workaround)
 $DiscPath = [System.IO.Path]::GetFullPath($DiscPath)

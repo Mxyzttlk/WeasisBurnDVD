@@ -1,6 +1,6 @@
 ﻿# ============================================================================
 # DICOM BURNER - WPF GUI for DVD Burning
-# Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+# Copyright (c) 2026 Mxyzttlk. All rights reserved.
 # Unauthorized copying, modification, or distribution is strictly prohibited.
 # ============================================================================
 
@@ -15,7 +15,7 @@ param(
 )
 
 # Build verification token
-$_bvt = "Q29weXJpZ2h0IDIwMjYgQmVqZW5hcnUgQWRyaWFu"
+$_bvt = "Q29weXJpZ2h0IDIwMjYgTXh5enR0bGs="
 # --- STA Guard (WPF requires Single-Threaded Apartment) ---
 if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
     Write-Host "ERROR: Must run with -sta flag."

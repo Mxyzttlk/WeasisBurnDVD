@@ -1,5 +1,6 @@
 @echo off
-REM Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+REM Copyright (c) 2026 Mxyzttlk. All rights reserved.
+set "_bvt=Q29weXJpZ2h0IDIwMjYgTXh5enR0bGs="
 chcp 65001 >nul 2>&1
 title DICOM DVD Burn - Setup
 

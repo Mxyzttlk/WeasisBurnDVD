@@ -1,0 +1,42 @@
+PROPRIETARY SOFTWARE LICENSE
+
+Copyright (c) 2026 Mxyzttlk (https://github.com/Mxyzttlk)
+All rights reserved.
+
+This software and associated documentation files (the "Software") are the
+exclusive property of the copyright holder. No part of the Software may be
+copied, modified, merged, published, distributed, sublicensed, sold, or
+otherwise transferred without the prior written permission of the copyright
+holder.
+
+Unauthorized use, reproduction, or distribution of the Software, in whole
+or in part, is strictly prohibited and may result in civil and criminal
+penalties.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+THIRD-PARTY COMPONENTS
+
+This software incorporates the following third-party open-source components.
+These components retain their original licenses and are NOT covered by the
+proprietary license above:
+
+  Component               License                    Source
+  --------------------    -----------------------    ----------------------------------
+  Weasis 3.7.1            EPL-2.0 OR Apache-2.0     https://github.com/nroduit/Weasis
+  Adoptium JRE 8          GPL-2.0 + Classpath Ex.   https://github.com/adoptium/jdk8u
+  Apache Felix             Apache-2.0                https://github.com/apache/felix-dev
+  fo-dicom 5.1.3           MS-PL                     https://github.com/fo-dicom/fo-dicom
+  CommunityToolkit.Mvvm    MIT                       https://github.com/CommunityToolkit/dotnet
+  WebView2 SDK              MIT                       https://aka.ms/webview2
+  dcmtk 3.7.0              BSD-style                 https://dicom.offis.de/dcmtk
+
+See the respective project repositories for full license texts.

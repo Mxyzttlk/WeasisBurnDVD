@@ -1,6 +1,6 @@
 # ============================================================================
 # DICOM DVD Burn Script - Weasis Portable
-# Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+# Copyright (c) 2026 Mxyzttlk. All rights reserved.
 # Unauthorized copying, modification, or distribution is strictly prohibited.
 # ============================================================================
 # Usage:
@@ -29,7 +29,7 @@ $ContentDir     = Join-Path $DiscStaging "Weasis"     # subfolder on disc for al
 $TemplatesDir   = Join-Path $ProjectRoot "templates"
 $DcmtkDir       = Join-Path $ProjectRoot "tools\dcmtk"
 # Internal integrity token (do not modify)
-$script:_ivalid = "Q29weXJpZ2h0IDIwMjYgQmVqZW5hcnUgQWRyaWFu"
+$script:_ivalid = "Q29weXJpZ2h0IDIwMjYgTXh5enR0bGs="
 $script:burnSuccess = $false
 
 # --- Functions ---

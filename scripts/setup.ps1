@@ -1,9 +1,10 @@
 # ============================================================================
 # Setup Script - Downloads Weasis Portable + JRE + WebView2 SDK
-# Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+# Copyright (c) 2026 Mxyzttlk. All rights reserved.
 # Unauthorized copying, modification, or distribution is strictly prohibited.
 # ============================================================================
 
+$_bvt = "Q29weXJpZ2h0IDIwMjYgTXh5enR0bGs="
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 

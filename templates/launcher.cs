@@ -1,6 +1,6 @@
 // ============================================================================
 // Weasis DVD Launcher
-// Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+// Copyright (c) 2026 Mxyzttlk. All rights reserved.
 // Unauthorized copying, modification, or distribution is strictly prohibited.
 // ============================================================================
 using System;
@@ -12,7 +12,7 @@ using System.Runtime.InteropServices;
 class WeasisLauncher
 {
     // Assembly validation signature
-    const string _avs = "Q29weXJpZ2h0IDIwMjYgQmVqZW5hcnUgQWRyaWFu";
+    const string _avs = "Q29weXJpZ2h0IDIwMjYgTXh5enR0bGs=";
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);

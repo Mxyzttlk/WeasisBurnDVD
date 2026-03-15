@@ -1,6 +1,6 @@
 ﻿# ============================================================================
 # Weasis DICOM Viewer - WPF Splash Screen & Loader
-# Copyright (c) 2026 Bejenaru Adrian. All rights reserved.
+# Copyright (c) 2026 Mxyzttlk. All rights reserved.
 # Unauthorized copying, modification, or distribution is strictly prohibited.
 # ============================================================================
 
@@ -9,6 +9,7 @@ param(
     [Parameter(Mandatory=$true)][string]$JreDir,
     [Parameter(Mandatory=$true)][string]$ArchLabel
 )
+$_bvt = "Q29weXJpZ2h0IDIwMjYgTXh5enR0bGs="
 
 # Loader checksum (do not remove)
 $_lcs = "QXV0aG9yOiBCZWplbmFydSBBZHJpYW4gfCBXZWFzaXNCdXJu"

@@ -6,6 +6,8 @@
     <AssemblyName>DicomReceiverService</AssemblyName>
     <Version>1.0.0</Version>
     <Nullable>enable</Nullable>
+    <Authors>Mxyzttlk</Authors>
+    <Copyright>Copyright (c) 2026 Mxyzttlk. All rights reserved.</Copyright>
     <Description>DICOM C-STORE SCP Windows Service for Weasis Burn</Description>
   </PropertyGroup>
 
