@@ -142,6 +142,10 @@ public class BurnService
         var args = $"-ExecutionPolicy Bypass -File \"{burnScript}\" -ZipPath \"{zipPath}\" -BurnSpeed {settings.BurnSpeed}";
         if (!string.IsNullOrEmpty(settings.SelectedDriveId))
             args += $" -DriveID \"{settings.SelectedDriveId}\"";
+        if (settings.SimulateOnly)
+            args += " -SimulateOnly";
+        if (!settings.IncludeTutorial)
+            args += " -ExcludeTutorial";
 
         var psi = new ProcessStartInfo
         {
@@ -305,6 +309,8 @@ public class BurnService
                 args += $" -DriveID \"{settings.SelectedDriveId}\"";
             if (settings.SimulateOnly)
                 args += " -SimulateOnly";
+            if (!settings.IncludeTutorial)
+                args += " -ExcludeTutorial";
 
             var psi = new ProcessStartInfo
             {
@@ -586,6 +592,8 @@ public class BurnService
                 args += $" -DriveID \"{settings.SelectedDriveId}\"";
             if (settings.SimulateOnly)
                 args += " -SimulateOnly";
+            if (!settings.IncludeTutorial)
+                args += " -ExcludeTutorial";
 
             var psi = new ProcessStartInfo
             {

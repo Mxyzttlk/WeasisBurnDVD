@@ -42,6 +42,7 @@ public partial class SettingsDialog : Window
             }).ToList(),
             LastPacsNetworkIndex = settings.LastPacsNetworkIndex,
             SimulateOnly = settings.SimulateOnly,
+            IncludeTutorial = settings.IncludeTutorial,
             AutoLogin = settings.AutoLogin,
             AutoUnlock = settings.AutoUnlock,
             AutoExcludeViewer = settings.AutoExcludeViewer
@@ -90,6 +91,7 @@ public partial class SettingsDialog : Window
         ChkAutoUnlock.IsChecked = Settings.AutoUnlock;
         ChkAutoExcludeViewer.IsChecked = Settings.AutoExcludeViewer;
         ChkSimulateOnly.IsChecked = Settings.SimulateOnly;
+        ChkIncludeTutorial.IsChecked = Settings.IncludeTutorial;
     }
 
     private void ApplyLocalization()
@@ -119,6 +121,8 @@ public partial class SettingsDialog : Window
         LblAutoExcludeViewer.Text = L("AutoExcludeViewer") + ":";
         LblSimulateOnly.Text = L("SimulateOnly") + ":";
         ChkSimulateOnly.Content = L("SimulateOnlyCheckbox");
+        LblIncludeTutorial.Text = L("IncludeTutorial") + ":";
+        ChkIncludeTutorial.Content = L("IncludeTutorialCheckbox");
         LblEditNetworks.Text = L("PacsNetwork") + ":";
         BtnEditNetworks.Content = L("EditNetworks");
     }
@@ -310,6 +314,7 @@ public partial class SettingsDialog : Window
         Settings.AutoUnlock = ChkAutoUnlock.IsChecked == true;
         Settings.AutoExcludeViewer = ChkAutoExcludeViewer.IsChecked == true;
         Settings.SimulateOnly = ChkSimulateOnly.IsChecked == true;
+        Settings.IncludeTutorial = ChkIncludeTutorial.IsChecked == true;
 
         // MaxStudiesKeep only relevant when AutoDelete is OFF
         if (!Settings.AutoDeleteAfterBurn)

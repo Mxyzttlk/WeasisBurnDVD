@@ -14,7 +14,8 @@ param(
     [string]$DriveID = "",
     [int]$BurnSpeed = 4,
     [switch]$AutoConfirm,
-    [switch]$SimulateOnly
+    [switch]$SimulateOnly,
+    [switch]$ExcludeTutorial
 )
 
 $ErrorActionPreference = "Stop"
@@ -474,21 +475,23 @@ action=Open DICOM Viewer (Weasis)
     $readmeTxt = Join-Path $TemplatesDir "README.txt"
     if (Test-Path $readmeTxt) { Copy-Item -Path $readmeTxt -Destination $DiscStaging -Force }
 
-    # Tutorial script
-    $tutorialScript = Join-Path $TemplatesDir "tutorial.ps1"
-    if (Test-Path $tutorialScript) {
-        Copy-Item -Path $tutorialScript -Destination $ContentDir -Force
+    # Tutorial script + images (skip if -ExcludeTutorial)
+    if (-not $ExcludeTutorial) {
+        $tutorialScript = Join-Path $TemplatesDir "tutorial.ps1"
+        if (Test-Path $tutorialScript) {
+            Copy-Item -Path $tutorialScript -Destination $ContentDir -Force
+        }
+
+        $tutorialSrc = Join-Path $TemplatesDir "tutorial"
+        if (Test-Path $tutorialSrc) {
+            $tutorialDest = Join-Path $ContentDir "tutorial"
+            New-Item -ItemType Directory -Path $tutorialDest -Force | Out-Null
+            Get-ChildItem "$tutorialSrc\?.png" | Copy-Item -Destination $tutorialDest -Force
+        }
     }
 
-    # Tutorial images (only numbered PNGs, skip "Copy" duplicates)
-    $tutorialSrc = Join-Path $TemplatesDir "tutorial"
-    if (Test-Path $tutorialSrc) {
-        $tutorialDest = Join-Path $ContentDir "tutorial"
-        New-Item -ItemType Directory -Path $tutorialDest -Force | Out-Null
-        Get-ChildItem "$tutorialSrc\?.png" | Copy-Item -Destination $tutorialDest -Force
-    }
-
-    Write-Ok "autorun.inf (root), start-weasis.bat + splash-loader.ps1 + tutorial.ps1 + README.html (Weasis/)"
+    $tutorialMsg = if ($ExcludeTutorial) { "" } else { " + tutorial.ps1" }
+    Write-Ok "autorun.inf (root), start-weasis.bat + splash-loader.ps1$tutorialMsg + README.html (Weasis/)"
 }
 
 function Build-LauncherWrapper {

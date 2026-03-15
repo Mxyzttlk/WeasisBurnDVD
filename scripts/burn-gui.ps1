@@ -10,7 +10,8 @@ param(
     [string]$DriveID = "",
     [int]$BurnSpeed = 4,
     [switch]$AutoConfirm,
-    [switch]$SimulateOnly
+    [switch]$SimulateOnly,
+    [switch]$ExcludeTutorial
 )
 
 # Build verification token
@@ -760,16 +761,19 @@ $workerScript = {
         if (Test-Path $readmeHtml) { Copy-Item -Path $readmeHtml -Destination $contentDir -Force }
         $readmeTxt = Join-Path $templatesDir "README.txt"
         if (Test-Path $readmeTxt) { Copy-Item -Path $readmeTxt -Destination $discStaging -Force }
-        # Tutorial script + images
-        $tutorialScript = Join-Path $templatesDir "tutorial.ps1"
-        if (Test-Path $tutorialScript) { Copy-Item -Path $tutorialScript -Destination $contentDir -Force }
-        $tutorialSrc = Join-Path $templatesDir "tutorial"
-        if (Test-Path $tutorialSrc) {
-            $tutorialDest = Join-Path $contentDir "tutorial"
-            New-Item -ItemType Directory -Path $tutorialDest -Force | Out-Null
-            Get-ChildItem "$tutorialSrc\?.png" | Copy-Item -Destination $tutorialDest -Force
+        # Tutorial script + images (skip if -ExcludeTutorial)
+        if (-not $ExcludeTutorial) {
+            $tutorialScript = Join-Path $templatesDir "tutorial.ps1"
+            if (Test-Path $tutorialScript) { Copy-Item -Path $tutorialScript -Destination $contentDir -Force }
+            $tutorialSrc = Join-Path $templatesDir "tutorial"
+            if (Test-Path $tutorialSrc) {
+                $tutorialDest = Join-Path $contentDir "tutorial"
+                New-Item -ItemType Directory -Path $tutorialDest -Force | Out-Null
+                Get-ChildItem "$tutorialSrc\?.png" | Copy-Item -Destination $tutorialDest -Force
+            }
         }
-        Log "[OK] autorun.inf + start-weasis.bat + splash-loader.ps1 + tutorial.ps1" 53
+        $tutorialMsg = if ($ExcludeTutorial) { "" } else { " + tutorial.ps1" }
+        Log "[OK] autorun.inf + start-weasis.bat + splash-loader.ps1$tutorialMsg" 53
 
         # ======== STEP 8: LAUNCHER WRAPPER ========
         UpdateStatus ($s.StepLauncher)
