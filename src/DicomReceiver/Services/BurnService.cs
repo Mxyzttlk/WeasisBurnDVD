@@ -679,7 +679,14 @@ public class BurnService
                 try
                 {
                     RestoreFilesFromStaging(stagingDir, studyDirMappings);
-                    // Restoration succeeded — set Complete for retry
+                    // Restoration succeeded — clean up empty staging folder
+                    try
+                    {
+                        if (Directory.Exists(stagingDir))
+                            Directory.Delete(stagingDir, true);
+                    }
+                    catch { /* best effort */ }
+                    // Set Complete for retry
                     foreach (var study in studies)
                     {
                         study.Status = StudyStatus.Complete;

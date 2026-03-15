@@ -55,7 +55,9 @@ public class StudyMonitorService : IDisposable
                 ?? Path.GetDirectoryName(args.FilePath) ?? args.FilePath)
         });
 
-        // If study was already Complete, reset to Receiving (re-send scenario)
+        // If study was already Complete, reset to Receiving (new series arriving later)
+        // Do NOT clear _imagesPerStudy HashSet — old SOPUIDs must be kept for dedup.
+        // RecalculateStudySize() corrects counts from disk when study completes again.
         if (study.Status == StudyStatus.Complete)
         {
             study.Status = StudyStatus.Receiving;

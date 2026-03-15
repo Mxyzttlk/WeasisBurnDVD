@@ -113,7 +113,10 @@
       "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj -c Debug --nologo)",
       "Bash(dotnet build src/DicomReceiver --no-incremental)",
       "Bash(dotnet build src/DicomReceiver/DicomReceiver.csproj -c Release --nologo)",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "Bash(dotnet run:*)",
+      "Read(//c/Users/Fucking_User/.nuget/packages/fo-dicom/5.1.3/lib/net8.0-windows7.0/**)",
+      "Bash(find ~/.nuget/packages/fo-dicom/5.1.3/ -name *.xml)"
     ]
   }
 }
