@@ -1,0 +1,121 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:fire="http://wixtoolset.org/schemas/v4/wxs/firewall">
+
+  <Fragment>
+    <ComponentGroup Id="CG_Service" Directory="INSTALLFOLDER">
+
+      <!-- Service executable with install/control -->
+      <Component Id="C_ServiceExe" Guid="*">
+        <File Id="F_ServiceExe" Source="$(var.ServicePublishDir)DicomReceiverService.exe" KeyPath="yes" />
+
+        <ServiceInstall Id="SI_DicomReceiver"
+                        Name="DicomReceiverService"
+                        DisplayName="DICOM Receiver Service"
+                        Description="Receives DICOM studies via C-STORE SCP for DVD burning. Runs 24/7 even when the application is closed."
+                        Type="ownProcess"
+                        Start="auto"
+                        ErrorControl="normal"
+                        Account="LocalSystem" />
+
+        <ServiceControl Id="SC_DicomReceiver"
+                        Name="DicomReceiverService"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+
+        <!-- Firewall rule for DICOM port -->
+        <fire:FirewallException Id="FW_DicomPort"
+                                Name="DICOM Receiver Service"
+                                Protocol="tcp"
+                                Port="4006"
+                                Scope="any"
+                                Profile="all"
+                                Description="Allow inbound DICOM C-STORE SCP connections for medical imaging" />
+      </Component>
+
+      <Component Id="C_ServiceDll" Guid="*">
+        <File Source="$(var.ServicePublishDir)DicomReceiverService.dll" />
+      </Component>
+      <Component Id="C_ServiceDeps" Guid="*">
+        <File Source="$(var.ServicePublishDir)DicomReceiverService.deps.json" />
+      </Component>
+      <Component Id="C_ServiceRuntimeConfig" Guid="*">
+        <File Source="$(var.ServicePublishDir)DicomReceiverService.runtimeconfig.json" />
+      </Component>
+
+      <!-- Service-unique DLLs (not in app publish) -->
+      <Component Id="C_MsExtConfig" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Configuration.dll" />
+      </Component>
+      <Component Id="C_MsExtConfigAbs" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Configuration.Abstractions.dll" />
+      </Component>
+      <Component Id="C_MsExtConfigBinder" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Configuration.Binder.dll" />
+      </Component>
+      <Component Id="C_MsExtConfigCmd" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Configuration.CommandLine.dll" />
+      </Component>
+      <Component Id="C_MsExtConfigEnv" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Configuration.EnvironmentVariables.dll" />
+      </Component>
+      <Component Id="C_MsExtConfigFile" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Configuration.FileExtensions.dll" />
+      </Component>
+      <Component Id="C_MsExtConfigJson" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Configuration.Json.dll" />
+      </Component>
+      <Component Id="C_MsExtConfigUser" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Configuration.UserSecrets.dll" />
+      </Component>
+      <Component Id="C_MsExtDiagAbs" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Diagnostics.Abstractions.dll" />
+      </Component>
+      <Component Id="C_MsExtDiag" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Diagnostics.dll" />
+      </Component>
+      <Component Id="C_MsExtFileProv" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.FileProviders.Abstractions.dll" />
+      </Component>
+      <Component Id="C_MsExtFileProvPhys" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.FileProviders.Physical.dll" />
+      </Component>
+      <Component Id="C_MsExtFileGlob" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.FileSystemGlobbing.dll" />
+      </Component>
+      <Component Id="C_MsExtHostAbs" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Hosting.Abstractions.dll" />
+      </Component>
+      <Component Id="C_MsExtHost" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Hosting.dll" />
+      </Component>
+      <Component Id="C_MsExtHostWin" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Hosting.WindowsServices.dll" />
+      </Component>
+      <Component Id="C_MsExtLogConfig" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Logging.Configuration.dll" />
+      </Component>
+      <Component Id="C_MsExtLogConsole" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Logging.Console.dll" />
+      </Component>
+      <Component Id="C_MsExtLogDebug" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Logging.Debug.dll" />
+      </Component>
+      <Component Id="C_MsExtLogEvent" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Logging.EventLog.dll" />
+      </Component>
+      <Component Id="C_MsExtLogEventSrc" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Logging.EventSource.dll" />
+      </Component>
+      <Component Id="C_MsExtOptConfig" Guid="*">
+        <File Source="$(var.ServicePublishDir)Microsoft.Extensions.Options.ConfigurationExtensions.dll" />
+      </Component>
+      <Component Id="C_EventLogMessages" Guid="*">
+        <File Source="$(var.ServicePublishDir)System.Diagnostics.EventLog.Messages.dll" />
+      </Component>
+
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>

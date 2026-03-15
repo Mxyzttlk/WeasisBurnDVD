@@ -1,0 +1,65 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Fragment>
+    <ComponentGroup Id="CG_Templates" Directory="TEMPLATES_DIR">
+
+      <!-- Disc launcher scripts -->
+      <Component Id="C_StartWeasisBat" Guid="*">
+        <File Source="$(var.TemplatesDir)start-weasis.bat" KeyPath="yes" />
+      </Component>
+      <Component Id="C_SplashLoaderPs1" Guid="*">
+        <File Source="$(var.TemplatesDir)splash-loader.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="C_TutorialPs1" Guid="*">
+        <File Source="$(var.TemplatesDir)tutorial.ps1" KeyPath="yes" />
+      </Component>
+
+      <!-- Disc content templates -->
+      <Component Id="C_AutorunInf" Guid="*">
+        <File Source="$(var.TemplatesDir)autorun.inf" KeyPath="yes" />
+      </Component>
+      <Component Id="C_ReadmeHtml" Guid="*">
+        <File Source="$(var.TemplatesDir)README.html" KeyPath="yes" />
+      </Component>
+      <Component Id="C_ReadmeTxt" Guid="*">
+        <File Source="$(var.TemplatesDir)README.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="C_WeasisViewerBat" Guid="*">
+        <File Source="$(var.TemplatesDir)Weasis Viewer.bat" KeyPath="yes" />
+      </Component>
+
+      <!-- Custom launcher source + icon -->
+      <Component Id="C_LauncherCs" Guid="*">
+        <File Source="$(var.TemplatesDir)launcher.cs" KeyPath="yes" />
+      </Component>
+      <Component Id="C_WeasisIco" Guid="*">
+        <File Source="$(var.TemplatesDir)weasis.ico" KeyPath="yes" />
+      </Component>
+
+      <!-- Tutorial images -->
+      <Component Id="C_Tutorial1" Guid="*" Directory="TUTORIAL_DIR">
+        <File Source="$(var.TemplatesDir)tutorial\1.png" KeyPath="yes" />
+      </Component>
+      <Component Id="C_Tutorial2" Guid="*" Directory="TUTORIAL_DIR">
+        <File Source="$(var.TemplatesDir)tutorial\2.png" KeyPath="yes" />
+      </Component>
+      <Component Id="C_Tutorial3" Guid="*" Directory="TUTORIAL_DIR">
+        <File Source="$(var.TemplatesDir)tutorial\3.png" KeyPath="yes" />
+      </Component>
+      <Component Id="C_Tutorial4" Guid="*" Directory="TUTORIAL_DIR">
+        <File Source="$(var.TemplatesDir)tutorial\4.png" KeyPath="yes" />
+      </Component>
+      <Component Id="C_Tutorial5" Guid="*" Directory="TUTORIAL_DIR">
+        <File Source="$(var.TemplatesDir)tutorial\5.png" KeyPath="yes" />
+      </Component>
+      <Component Id="C_Tutorial6" Guid="*" Directory="TUTORIAL_DIR">
+        <File Source="$(var.TemplatesDir)tutorial\6.png" KeyPath="yes" />
+      </Component>
+      <Component Id="C_Tutorial7" Guid="*" Directory="TUTORIAL_DIR">
+        <File Source="$(var.TemplatesDir)tutorial\7.png" KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>

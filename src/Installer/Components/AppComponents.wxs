@@ -1,0 +1,89 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Fragment>
+    <ComponentGroup Id="CG_App" Directory="INSTALLFOLDER">
+
+      <!-- Main application executable -->
+      <Component Id="C_DicomReceiverExe" Guid="*">
+        <File Id="F_DicomReceiverExe" Source="$(var.AppPublishDir)DicomReceiver.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="C_DicomReceiverDll" Guid="*">
+        <File Source="$(var.AppPublishDir)DicomReceiver.dll" />
+      </Component>
+      <Component Id="C_DicomReceiverDeps" Guid="*">
+        <File Source="$(var.AppPublishDir)DicomReceiver.deps.json" />
+      </Component>
+      <Component Id="C_DicomReceiverRuntimeConfig" Guid="*">
+        <File Source="$(var.AppPublishDir)DicomReceiver.runtimeconfig.json" />
+      </Component>
+
+      <!-- Shared and app-specific DLLs -->
+      <Component Id="C_CommunityToolkitHigh" Guid="*">
+        <File Source="$(var.AppPublishDir)CommunityToolkit.HighPerformance.dll" />
+      </Component>
+      <Component Id="C_CommunityToolkitMvvm" Guid="*">
+        <File Source="$(var.AppPublishDir)CommunityToolkit.Mvvm.dll" />
+      </Component>
+      <Component Id="C_MsBclAsync" Guid="*">
+        <File Source="$(var.AppPublishDir)Microsoft.Bcl.AsyncInterfaces.dll" />
+      </Component>
+      <Component Id="C_MsBclHash" Guid="*">
+        <File Source="$(var.AppPublishDir)Microsoft.Bcl.HashCode.dll" />
+      </Component>
+      <Component Id="C_MsExtDI_Abs" Guid="*">
+        <File Source="$(var.AppPublishDir)Microsoft.Extensions.DependencyInjection.Abstractions.dll" />
+      </Component>
+      <Component Id="C_MsExtDI" Guid="*">
+        <File Source="$(var.AppPublishDir)Microsoft.Extensions.DependencyInjection.dll" />
+      </Component>
+      <Component Id="C_MsExtLogAbs" Guid="*">
+        <File Source="$(var.AppPublishDir)Microsoft.Extensions.Logging.Abstractions.dll" />
+      </Component>
+      <Component Id="C_MsExtLog" Guid="*">
+        <File Source="$(var.AppPublishDir)Microsoft.Extensions.Logging.dll" />
+      </Component>
+      <Component Id="C_MsExtOpt" Guid="*">
+        <File Source="$(var.AppPublishDir)Microsoft.Extensions.Options.dll" />
+      </Component>
+      <Component Id="C_MsExtPrim" Guid="*">
+        <File Source="$(var.AppPublishDir)Microsoft.Extensions.Primitives.dll" />
+      </Component>
+      <Component Id="C_WebView2Core" Guid="*">
+        <File Source="$(var.AppPublishDir)Microsoft.Web.WebView2.Core.dll" />
+      </Component>
+      <Component Id="C_WebView2WinForms" Guid="*">
+        <File Source="$(var.AppPublishDir)Microsoft.Web.WebView2.WinForms.dll" />
+      </Component>
+      <Component Id="C_WebView2Wpf" Guid="*">
+        <File Source="$(var.AppPublishDir)Microsoft.Web.WebView2.Wpf.dll" />
+      </Component>
+      <Component Id="C_EventLog" Guid="*">
+        <File Source="$(var.AppPublishDir)System.Diagnostics.EventLog.dll" />
+      </Component>
+      <Component Id="C_ServiceController" Guid="*">
+        <File Source="$(var.AppPublishDir)System.ServiceProcess.ServiceController.dll" />
+      </Component>
+      <Component Id="C_WebView2Loader" Guid="*">
+        <File Source="$(var.AppPublishDir)WebView2Loader.dll" />
+      </Component>
+      <Component Id="C_FoDicom" Guid="*">
+        <File Source="$(var.AppPublishDir)fo-dicom.core.dll" />
+      </Component>
+
+      <!-- Resources -->
+      <Component Id="C_AppIcon" Guid="*" Directory="RESOURCES_DIR">
+        <File Source="$(var.AppPublishDir)Resources\app.ico" />
+      </Component>
+      <Component Id="C_AppPreview" Guid="*" Directory="RESOURCES_DIR">
+        <File Source="$(var.AppPublishDir)Resources\app-preview.png" />
+      </Component>
+
+      <!-- Native runtimes -->
+      <Component Id="C_WebView2LoaderNative" Guid="*" Directory="RUNTIMES_NATIVE_DIR">
+        <File Source="$(var.AppPublishDir)runtimes\win-x64\native\WebView2Loader.dll" />
+      </Component>
+
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>

@@ -123,7 +123,22 @@
       "Read(//e/Weasis Burn/**)",
       "Bash(for f:*)",
       "Bash(do sed:*)",
-      "Bash(echo \"OK: $f\")"
+      "Bash(echo \"OK: $f\")",
+      "Bash(du -sh \"/e/Weasis Burn/tools\"/*)",
+      "Bash(grep -E \"\\\\.\\(sln|md|txt\\)$\")",
+      "Bash(grep -E \"\\\\.\\(sln|md\\)$|^scripts$|^templates$|^tools$|^downloads$\")",
+      "Bash(dotnet publish:*)",
+      "Bash(dotnet tool:*)",
+      "Bash(dotnet new:*)",
+      "Bash(powershell -c \"[guid]::NewGuid\\(\\).ToString\\(\\)\")",
+      "Bash(rm -rf publish/combined)",
+      "Bash(mkdir -p publish/combined)",
+      "Bash(cp -r publish/app/* publish/combined/)",
+      "Bash(cp -n publish/service/* publish/combined/)",
+      "Bash(ls publish/combined/*.exe)",
+      "Bash(wix msi:*)",
+      "Bash(wix --help)",
+      "Read(//tmp/**)"
     ]
   }
 }

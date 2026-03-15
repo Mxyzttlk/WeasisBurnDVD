@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "V299A4eXie8=",
+  "success": true,
+  "projectFilePath": "E:\\Weasis Burn\\src\\Installer\\Installer.wixproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Fucking_User\\.nuget\\packages\\wixtoolset.firewall.wixext\\6.0.2\\wixtoolset.firewall.wixext.6.0.2.nupkg.sha512",
+    "C:\\Users\\Fucking_User\\.nuget\\packages\\wixtoolset.ui.wixext\\6.0.2\\wixtoolset.ui.wixext.6.0.2.nupkg.sha512",
+    "C:\\Users\\Fucking_User\\.nuget\\packages\\wixtoolset.util.wixext\\6.0.2\\wixtoolset.util.wixext.6.0.2.nupkg.sha512"
+  ],
+  "logs": []
+}

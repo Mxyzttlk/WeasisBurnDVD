@@ -1,0 +1,43 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Fragment>
+    <ComponentGroup Id="CG_Scripts" Directory="SCRIPTS_DIR">
+
+      <!-- Core burn scripts -->
+      <Component Id="C_BurnPs1" Guid="*">
+        <File Source="$(var.ScriptsDir)burn.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="C_BurnGuiPs1" Guid="*">
+        <File Source="$(var.ScriptsDir)burn-gui.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="C_SetupPs1" Guid="*">
+        <File Source="$(var.ScriptsDir)setup.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="C_InstallServicePs1" Guid="*">
+        <File Source="$(var.ScriptsDir)install-service.ps1" KeyPath="yes" />
+      </Component>
+
+      <!-- Helper scripts -->
+      <Component Id="C_FixEncodingPs1" Guid="*">
+        <File Source="$(var.ScriptsDir)fix-encoding.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="C_CleanAndLaunchBat" Guid="*">
+        <File Source="$(var.ScriptsDir)clean-and-launch.bat" KeyPath="yes" />
+      </Component>
+      <Component Id="C_GenerateIconPs1" Guid="*">
+        <File Source="$(var.ScriptsDir)generate-icon.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="C_CheckSyntaxPs1" Guid="*">
+        <File Source="$(var.ScriptsDir)check-syntax.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="C_CleanCachePs1" Guid="*">
+        <File Source="$(var.ScriptsDir)clean-cache.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="C_DiagnoseDiscPs1" Guid="*">
+        <File Source="$(var.ScriptsDir)diagnose-disc.ps1" KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>

@@ -1,0 +1,106 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:fire="http://wixtoolset.org/schemas/v4/wxs/firewall"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package Name="DICOM Receiver"
+           Manufacturer="Mxyzttlk"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="5f73e06c-26a7-4dff-8bc9-d5166b31af2d"
+           Scope="perMachine"
+           InstallerVersion="500"
+           Compressed="yes">
+
+    <SummaryInformation Description="DICOM Receiver — medical imaging study receiver and DVD burn tool" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of DICOM Receiver is already installed."
+                  Schedule="afterInstallInitialize"
+                  AllowSameVersionUpgrades="yes" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- UI with install directory chooser -->
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <Icon Id="AppIcon" SourceFile="$(var.AppPublishDir)Resources\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Mxyzttlk" />
+
+    <!-- .NET 8 Desktop Runtime detection -->
+    <Property Id="NETDESKTOPRUNTIME80">
+      <RegistrySearch Id="NetDesktopRuntime80"
+                      Root="HKLM"
+                      Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
+                      Type="raw" />
+    </Property>
+    <Launch Condition="Installed OR NETDESKTOPRUNTIME80"
+            Message="DICOM Receiver requires .NET Desktop Runtime 8.0.&#13;&#10;Download from: https://dotnet.microsoft.com/download/dotnet/8.0" />
+
+    <!-- Directory structure -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="DICOM Receiver">
+        <Directory Id="SCRIPTS_DIR" Name="scripts" />
+        <Directory Id="TEMPLATES_DIR" Name="templates">
+          <Directory Id="TUTORIAL_DIR" Name="tutorial" />
+        </Directory>
+        <Directory Id="RESOURCES_DIR" Name="Resources" />
+        <Directory Id="RUNTIMES_DIR" Name="runtimes">
+          <Directory Id="RUNTIMES_WIN_DIR" Name="win-x64">
+            <Directory Id="RUNTIMES_NATIVE_DIR" Name="native" />
+          </Directory>
+        </Directory>
+        <Directory Id="TOOLS_DIR" Name="tools">
+          <Directory Id="WEASIS_DIR" Name="weasis-portable" />
+          <Directory Id="DCMTK_DIR" Name="dcmtk" />
+          <Directory Id="WEBVIEW2_DIR" Name="webview2" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Start Menu shortcut -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ProgramMenuDir" Name="DICOM Receiver" />
+    </StandardDirectory>
+
+    <!-- Features -->
+    <Feature Id="F_Main" Title="DICOM Receiver" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="CG_App" />
+      <ComponentGroupRef Id="CG_Service" />
+      <ComponentGroupRef Id="CG_Scripts" />
+      <ComponentGroupRef Id="CG_Templates" />
+      <ComponentRef Id="C_Shortcuts" />
+      <ComponentRef Id="C_CleanupDirs" />
+    </Feature>
+
+    <?if $(var.IncludeTools) = true ?>
+    <Feature Id="F_Tools" Title="Bundled Tools (Weasis, JRE, dcmtk)" Level="1">
+      <ComponentGroupRef Id="CG_Tools" />
+    </Feature>
+    <?endif?>
+
+    <!-- Shortcuts -->
+    <DirectoryRef Id="ProgramMenuDir">
+      <Component Id="C_Shortcuts" Guid="a3f8e1d2-7b4c-4a9e-8f3d-2c1b5e6a7d8f">
+        <Shortcut Id="SC_App"
+                  Name="DICOM Receiver"
+                  Target="[INSTALLFOLDER]DicomReceiver.exe"
+                  Icon="AppIcon"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveProgramMenuDir" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\DicomReceiver" Name="installed"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- Cleanup runtime-created directories on uninstall -->
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="C_CleanupDirs" Guid="b4e9f2c3-8d5a-4b0e-9a4c-3d2e6f7b8c9a" KeyPath="yes">
+        <util:RemoveFolderEx On="uninstall" Property="INSTALLFOLDER_PROP" />
+      </Component>
+    </DirectoryRef>
+    <SetProperty Id="INSTALLFOLDER_PROP" Value="[INSTALLFOLDER]" Before="RemoveFiles" Sequence="execute" />
+
+  </Package>
+
+</Wix>

@@ -1,0 +1,27 @@
+<Project Sdk="WixToolset.Sdk/6.0.2">
+
+  <PropertyGroup>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <OutputName Condition="'$(IncludeTools)' != 'true'">DicomReceiver-Setup-Online</OutputName>
+    <OutputName Condition="'$(IncludeTools)' == 'true'">DicomReceiver-Setup-Offline</OutputName>
+
+    <!-- Default: online (no tools bundled) -->
+    <IncludeTools Condition="'$(IncludeTools)' == ''">false</IncludeTools>
+    <DefineConstants>
+      IncludeTools=$(IncludeTools);
+      AppPublishDir=$(MSBuildThisFileDirectory)..\..\publish\app\;
+      ServicePublishDir=$(MSBuildThisFileDirectory)..\..\publish\service\;
+      ScriptsDir=$(MSBuildThisFileDirectory)..\..\scripts\;
+      TemplatesDir=$(MSBuildThisFileDirectory)..\..\templates\;
+      ToolsDir=$(MSBuildThisFileDirectory)..\..\tools\;
+      ProductVersion=1.0.0
+    </DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="6.0.2" />
+    <PackageReference Include="WixToolset.Firewall.wixext" Version="6.0.2" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="6.0.2" />
+  </ItemGroup>
+
+</Project>
