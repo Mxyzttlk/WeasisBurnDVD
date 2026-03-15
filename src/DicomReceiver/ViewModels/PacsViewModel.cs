@@ -31,10 +31,19 @@ public class PacsViewModel : ObservableObject, IDisposable
     private readonly DispatcherTimer _modalTimer;      // 1500ms delay after DOMContentLoaded for MutationObserver
     private DispatcherTimer? _downloadPollTimer; // Adaptive polling for PACS download modal
 
-    // Download state — per-operation tracking (supports concurrent downloads)
-    private readonly Dictionary<CoreWebView2DownloadOperation, (string path, string name)> _activeDownloads = new();
-    private readonly List<DispatcherTimer> _fallbackTimers = new();
+    // Download state — per-operation tracking with proper cleanup
+    private readonly Dictionary<CoreWebView2DownloadOperation, DownloadTracker> _activeDownloads = new();
+    private bool _burnInProgress;
     private readonly EventHandler<string> _onLogMessage;
+
+    private sealed class DownloadTracker
+    {
+        public required string Path;
+        public required string Name;
+        public bool Processed;
+        public DispatcherTimer? FallbackTimer;
+        public EventHandler<object>? BytesHandler;
+    }
 
     // Observable properties
     private string _statusText = "";
@@ -286,8 +295,10 @@ public class PacsViewModel : ObservableObject, IDisposable
         e.ResultFilePath = downloadPath;
         e.Handled = true;
 
-        // Track per download operation (supports concurrent downloads)
-        _activeDownloads[e.DownloadOperation] = (downloadPath, originalName);
+        // Create tracker with all per-download state (for proper cleanup)
+        var tracker = new DownloadTracker { Path = downloadPath, Name = originalName };
+        var dlOp = e.DownloadOperation;
+        _activeDownloads[dlOp] = tracker;
 
         Log($"Download intercepted: {originalName}");
 
@@ -296,18 +307,17 @@ public class PacsViewModel : ObservableObject, IDisposable
             DownloadInfo = $"{originalName} — 0%";
         });
 
-        // Wire progress — update UI directly (like PS version), throttled 500ms
-        var dlName = originalName;
+        // Wire progress — stored as named handler for proper unsubscribe
         DateTime lastProgress = DateTime.MinValue;
-        e.DownloadOperation.BytesReceivedChanged += (op, _) =>
+        EventHandler<object> bytesHandler = (op, _) =>
         {
             var now = DateTime.UtcNow;
             if ((now - lastProgress).TotalMilliseconds < 500) return;
             lastProgress = now;
 
-            var dlOp = (CoreWebView2DownloadOperation)op!;
-            var received = dlOp.BytesReceived;
-            var total = (long)(dlOp.TotalBytesToReceive ?? 0);
+            var dlOperation = (CoreWebView2DownloadOperation)op!;
+            var received = dlOperation.BytesReceived;
+            var total = (long)(dlOperation.TotalBytesToReceive ?? 0);
             var receivedMb = received / (1024.0 * 1024.0);
 
             _dispatcher.BeginInvoke(() =>
@@ -316,32 +326,32 @@ public class PacsViewModel : ObservableObject, IDisposable
                 {
                     var pct = (int)(received * 100 / total);
                     var totalMb = total / (1024.0 * 1024.0);
-                    DownloadInfo = $"{dlName} — {receivedMb:F1} / {totalMb:F1} MB ({pct}%)";
+                    DownloadInfo = $"{tracker.Name} — {receivedMb:F1} / {totalMb:F1} MB ({pct}%)";
                 }
                 else
                 {
-                    DownloadInfo = $"{dlName} — {receivedMb:F1} MB";
+                    DownloadInfo = $"{tracker.Name} — {receivedMb:F1} MB";
                 }
             });
         };
+        tracker.BytesHandler = bytesHandler;
+        dlOp.BytesReceivedChanged += bytesHandler;
 
         // Wire completion (primary path — StateChanged with Completed)
-        e.DownloadOperation.StateChanged += OnDownloadStateChanged;
+        dlOp.StateChanged += OnDownloadStateChanged;
 
         // Fallback: poll file every 3s — WebView2 StateChanged sometimes never fires Completed
-        var dlPath = downloadPath;
-        bool dlProcessed = false;
         var fallbackTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-        _fallbackTimers.Add(fallbackTimer);
+        tracker.FallbackTimer = fallbackTimer;
         fallbackTimer.Tick += (_, _) =>
         {
-            if (dlProcessed) { fallbackTimer.Stop(); _fallbackTimers.Remove(fallbackTimer); return; }
-            if (!File.Exists(dlPath)) return;
+            if (tracker.Processed) { fallbackTimer.Stop(); return; }
+            if (!File.Exists(tracker.Path)) return;
 
             // Try to open file exclusively — if it succeeds, WebView2 released the handle
             try
             {
-                using var fs = new FileStream(dlPath, FileMode.Open, FileAccess.Read, FileShare.None);
+                using var fs = new FileStream(tracker.Path, FileMode.Open, FileAccess.Read, FileShare.None);
                 fs.Close();
             }
             catch (IOException)
@@ -349,16 +359,31 @@ public class PacsViewModel : ObservableObject, IDisposable
                 return; // Still locked by WebView2 — retry next tick
             }
 
-            // File is ready — stop everything and process
-            dlProcessed = true;
+            // File is ready — clean up all handlers and process
+            tracker.Processed = true;
             fallbackTimer.Stop();
-            _fallbackTimers.Remove(fallbackTimer);
-            e.DownloadOperation.StateChanged -= OnDownloadStateChanged;
-            _activeDownloads.Remove(e.DownloadOperation);
-            Log($"Download complete (file-ready fallback): {dlName}");
-            ProcessDownloadedZip(dlPath, dlName);
+            CleanupDownloadHandlers(dlOp, tracker);
+            Log($"Download complete (file-ready fallback): {tracker.Name}");
+            ProcessDownloadedZip(tracker.Path, tracker.Name);
         };
         fallbackTimer.Start();
+    }
+
+    /// <summary>
+    /// Unsubscribes all event handlers and removes tracking for a completed download.
+    /// Called from both StateChanged (primary) and fallback timer paths.
+    /// </summary>
+    private void CleanupDownloadHandlers(CoreWebView2DownloadOperation op, DownloadTracker tracker)
+    {
+        op.StateChanged -= OnDownloadStateChanged;
+        if (tracker.BytesHandler != null)
+        {
+            op.BytesReceivedChanged -= tracker.BytesHandler;
+            tracker.BytesHandler = null;
+        }
+        tracker.FallbackTimer?.Stop();
+        tracker.FallbackTimer = null;
+        _activeDownloads.Remove(op);
     }
 
     private void OnDownloadStateChanged(object? sender, object e)
@@ -372,18 +397,21 @@ public class PacsViewModel : ObservableObject, IDisposable
                 op.State != CoreWebView2DownloadState.Interrupted)
                 return;
 
-            op.StateChanged -= OnDownloadStateChanged;
-
-            if (!_activeDownloads.TryGetValue(op, out var dl))
+            if (!_activeDownloads.TryGetValue(op, out var tracker))
             {
                 Log($"StateChanged {op.State} but download not tracked");
                 return;
             }
-            _activeDownloads.Remove(op);
+
+            // Atomic guard — prevent double processing if fallback timer fires simultaneously
+            if (tracker.Processed) return;
+            tracker.Processed = true;
+
+            CleanupDownloadHandlers(op, tracker);
 
             if (op.State == CoreWebView2DownloadState.Completed)
             {
-                ProcessDownloadedZip(dl.path, dl.name);
+                ProcessDownloadedZip(tracker.Path, tracker.Name);
             }
             else
             {
@@ -394,7 +422,7 @@ public class PacsViewModel : ObservableObject, IDisposable
                     CanBurnDvd = true;
                     CanImport = true;
                 });
-                Log($"Download interrupted: {dl.name}");
+                Log($"Download interrupted: {tracker.Name}");
             }
         }
         catch (Exception ex)
@@ -413,6 +441,13 @@ public class PacsViewModel : ObservableObject, IDisposable
 
         _dispatcher.BeginInvoke(() =>
         {
+            // Guard: prevent concurrent burn/import if previous one still running
+            if (_burnInProgress)
+            {
+                Log($"Burn/import already in progress — skipping {name}");
+                return;
+            }
+            _burnInProgress = true;
             CanBurnDvd = false;
             CanImport = false;
             DownloadInfo = "";
@@ -685,19 +720,20 @@ public class PacsViewModel : ObservableObject, IDisposable
         // Mirrors PS Start-PacsDownload: no title check, broad selectors, stateless per tick
         _downloadPollTimer?.Stop();
         int ticks = 0;
-        _downloadPollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
-        _downloadPollTimer.Tick += async (_, _) =>
+        var pollTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        _downloadPollTimer = pollTimer; // Store reference for external Stop (e.g. OnDownloadStarting)
+        pollTimer.Tick += async (_, _) =>
         {
             ticks++;
 
             // Adaptive interval: slow down after 10 seconds
             if (ticks == 20)
-                _downloadPollTimer!.Interval = TimeSpan.FromMilliseconds(3000);
+                pollTimer.Interval = TimeSpan.FromMilliseconds(3000);
 
             // Timeout after ~160 ticks (~8 min with adaptive intervals)
             if (ticks > 160)
             {
-                _downloadPollTimer!.Stop();
+                pollTimer.Stop();
                 Log("Download modal polling timed out");
                 CanBurnDvd = true;
                 CanImport = true;
@@ -740,13 +776,13 @@ public class PacsViewModel : ObservableObject, IDisposable
                 var result = await _webView!.CoreWebView2.ExecuteScriptAsync(pollModalJs);
                 if (result.Contains("download-clicked"))
                 {
-                    _downloadPollTimer!.Stop();
+                    pollTimer.Stop();
                     Log("PACS download initiated from modal");
                 }
             }
             catch { }
         };
-        _downloadPollTimer.Start();
+        pollTimer.Start();
     }
 
     /// <summary>
@@ -758,6 +794,7 @@ public class PacsViewModel : ObservableObject, IDisposable
     {
         _dispatcher.BeginInvoke(() =>
         {
+            _burnInProgress = false;
             CanBurnDvd = true;
             CanImport = true;
             BurnDvdLabel = L("BurnDvd");
@@ -779,6 +816,7 @@ public class PacsViewModel : ObservableObject, IDisposable
     {
         _dispatcher.BeginInvoke(() =>
         {
+            _burnInProgress = false;
             CanBurnDvd = true;
             CanImport = true;
             ImportLabel = L("ImportToQueue");
@@ -834,15 +872,11 @@ public class PacsViewModel : ObservableObject, IDisposable
         _modalTimer?.Stop();
         _downloadPollTimer?.Stop();
 
-        // Stop all fallback download timers
-        foreach (var timer in _fallbackTimers)
-            timer.Stop();
-        _fallbackTimers.Clear();
-
-        // Unsubscribe active download event handlers
-        foreach (var (op, _) in _activeDownloads)
+        // Clean up all active download handlers (BytesReceived + StateChanged + fallback timers)
+        // Snapshot keys first — CleanupDownloadHandlers removes from dictionary
+        foreach (var (op, tracker) in new List<KeyValuePair<CoreWebView2DownloadOperation, DownloadTracker>>(_activeDownloads))
         {
-            try { op.StateChanged -= OnDownloadStateChanged; } catch { }
+            try { CleanupDownloadHandlers(op, tracker); } catch { }
         }
         _activeDownloads.Clear();
 
