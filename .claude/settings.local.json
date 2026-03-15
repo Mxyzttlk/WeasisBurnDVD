@@ -150,7 +150,8 @@
       "Bash(dotnet clean:*)",
       "Bash(dotnet --list-runtimes)",
       "Bash(reg query:*)",
-      "Bash(powershell -NoProfile -Command ':*)"
+      "Bash(powershell -NoProfile -Command ':*)",
+      "Bash(LC_ALL=C grep -Pn '[^\\\\x00-\\\\x7F]' \"E:\\\\Weasis Burn\\\\scripts\\\\setup.ps1\")"
     ]
   }
 }

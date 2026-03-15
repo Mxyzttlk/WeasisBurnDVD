@@ -610,16 +610,17 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         // If no series remain, remove entire study
         if (study.Series.Count == 0)
         {
-            try
+            bool dirGone = !Directory.Exists(study.StoragePath);
+            if (!dirGone)
             {
-                if (Directory.Exists(study.StoragePath))
-                    Directory.Delete(study.StoragePath, true);
+                try { Directory.Delete(study.StoragePath, true); dirGone = true; }
+                catch { }
             }
-            catch { }
 
             Studies.Remove(study);
             _monitorService.RemoveStudy(study.StudyInstanceUid);
-            _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
+            if (dirGone)
+                _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
             AddLog($"Deleted empty study: {study.PatientName}");
         }
     }
@@ -627,7 +628,9 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
     private void DeleteStudy(object? param)
     {
         if (param is not ReceivedStudy study) return;
-        if (study.Status == StudyStatus.Burning || study.Status == StudyStatus.Receiving) return;
+        // Only block deletion during active burn (process running).
+        // Receiving studies CAN be deleted (e.g., stuck entries after reinstall).
+        if (study.Status == StudyStatus.Burning) return;
 
         var result = MessageBox.Show(
             L("ConfirmDelete"),
@@ -638,10 +641,18 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
         if (result != MessageBoxResult.Yes) return;
 
         // Delete files from disk
+        bool dirDeleted = false;
         try
         {
             if (Directory.Exists(study.StoragePath))
+            {
                 Directory.Delete(study.StoragePath, true);
+                dirDeleted = true;
+            }
+            else
+            {
+                dirDeleted = true; // Already gone — treat as success
+            }
         }
         catch (Exception ex)
         {
@@ -650,7 +661,11 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         Studies.Remove(study);
         _monitorService.RemoveStudy(study.StudyInstanceUid);
-        _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
+        // Only remove from _knownStudyDirs if directory was deleted.
+        // If delete failed (files in use), KEEP in _knownStudyDirs to prevent
+        // ScanIncomingFolder from re-discovering and re-adding the study.
+        if (dirDeleted)
+            _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
         AddLog($"Deleted: {study.PatientName}");
     }
 
@@ -668,16 +683,26 @@ public class MainViewModel : CommunityToolkit.Mvvm.ComponentModel.ObservableObje
 
         foreach (var study in Studies.ToList())
         {
-            if (study.Status == StudyStatus.Burning || study.Status == StudyStatus.Receiving) continue;
+            // Only skip studies with active burn process
+            if (study.Status == StudyStatus.Burning) continue;
+            bool dirDeleted = false;
             try
             {
                 if (Directory.Exists(study.StoragePath))
+                {
                     Directory.Delete(study.StoragePath, true);
+                    dirDeleted = true;
+                }
+                else
+                {
+                    dirDeleted = true;
+                }
             }
             catch { }
             Studies.Remove(study);
             _monitorService.RemoveStudy(study.StudyInstanceUid);
-            _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
+            if (dirDeleted)
+                _knownStudyDirs.Remove(Path.GetFileName(study.StoragePath));
         }
         AddLog(L("DeleteAll"));
     }

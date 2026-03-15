@@ -1887,6 +1887,117 @@ Save scrie tag-urile modificate în TOATE fișierele DICOM ale studiului (patter
 
 #### Build: ✅ 0 erori, 0 warnings
 
+### SESSION 2026-03-15 (WiX Installer — build, deploy, bug fixes pe PC instalat):
+
+#### WiX Installer — structura finală
+Installer profesional cu WiX Toolset v6.0.2, două variante:
+- **Online** (~63 MB): .exe bundle, instalează .NET 8 Runtime + MSI, setup.ps1 descarcă tools
+- **Offline** (~272 MB): .exe bundle, include Weasis+JRE+dcmtk+WebView2 în MSI
+
+**Proiecte WiX:**
+```
+src/Installer/
+├── Installer.wixproj           ← WiX v6 SDK project
+├── Package.wxs                 ← Product definition, directories, features, upgrade
+├── Components/
+│   ├── AppComponents.wxs       ← DicomReceiver.exe + DLLs + Resources
+│   ├── ServiceComponents.wxs   ← DicomReceiverService.exe + ServiceInstall/Control + Firewall
+│   ├── ScriptsComponents.wxs   ← scripts/*.ps1
+│   └── TemplatesComponents.wxs ← templates/ tree
+└── build.ps1                   ← Build script (ambele variante)
+
+src/Bundle/
+├── Bundle.wixproj              ← Burn bootstrapper (.exe wrapper)
+└── Bundle.wxs                  ← .NET 8 Runtime + MSI chain
+```
+
+**Features (checkboxes la Custom install):**
+- F_Main (obligatoriu): App + Service + Scripts + Templates + Cleanup
+- F_DesktopShortcut: Shortcut Desktop
+- F_StartMenuShortcut: Shortcut Start Menu + "Download Weasis Tools" (online only)
+- F_Tools (offline only): Weasis + JRE + dcmtk + WebView2
+
+**Cleanup la dezinstalare:**
+- `util:RemoveFolderEx` pe `INSTALLFOLDER` — șterge incoming/, tools/, downloads/
+- `util:RemoveFolderEx` pe `C:\ProgramData\WeasisBurn\` — șterge setările partajate cu serviciul
+- `%APPDATA%\WeasisBurn\` — NU se șterge (păstrează setări utilizator, parole PACS la reinstalare)
+
+**ServiceComponents.wxs:**
+- `ServiceInstall`: DicomReceiverService, Start=auto, Account=LocalSystem
+- `ServiceControl`: Start=install, Stop=both, Remove=uninstall
+- `fire:FirewallException`: TCP port 4006 inbound
+
+#### BUG CRITIC REZOLVAT: `-sta` lipsea din BurnService.cs
+- **Simptom**: burn-gui.ps1 eșua instant pe PC instalat (atât simulate mode cât și PACS burn)
+- **Root cause**: BurnService.cs lansa PowerShell fără `-sta` flag. burn-gui.ps1 verifică STA la linia 20 și exit 1 dacă nu e STA (WPF necesită STA thread).
+- **Fix**: adăugat `-sta` la toate 3 locurile din BurnService.cs:
+  ```csharp
+  var args = $"-sta -ExecutionPolicy Bypass -File \"{burnScript}\" ...";
+  ```
+- Locații: BurnZipAsync (linia 142), BurnStudyAsync (linia 328), BurnMultipleStudiesAsync (linia 611)
+
+#### BUG REZOLVAT: setup.ps1 — eroare parse pe PC instalat
+- **Simptom**: fereastra roșie cu "At setup.ps1:121 char:84" și restul gol
+- **Root cause 1**: Em-dash `—` (UTF-8 `e2 80 94`) pe linia 18 fără UTF-8 BOM. PowerShell 5.1 interpreta ca Windows-1252 → 3 caractere garbled → parse error cascadat.
+- **Root cause 2**: Expresii complexe `$('{0:N1}' -f ((Get-Item $path).Length / 1MB))` nested în string interpolation — problematice pe unele PS 5.1.
+- **Fix**:
+  - Înlocuit `—` cu `-` (ASCII pur)
+  - Scos toate `$(...)` complexe din string interpolation, puse pe linii separate:
+    ```powershell
+    # Înainte (problematic):
+    Write-Ok "Gasit: $foundZip ($('{0:N1}' -f ((Get-Item $foundZip).Length / 1MB)) MB)"
+    # După (safe):
+    $zipSizeMB = '{0:N1}' -f ((Get-Item $foundZip).Length / 1MB)
+    Write-Ok "Gasit: $foundZip ($zipSizeMB MB)"
+    ```
+  - Aplicat la 6 locuri: liniile cu Write-Ok pentru Weasis ZIP, JRE x86, JRE x64, WebView2, WebView2 extras, dcmtk
+
+#### setup.ps1 — îmbunătățiri error handling
+- Header cu locația instalare + tools dir (vizibil imediat)
+- Verificare drepturi de scriere (write test file) înainte de orice descărcare
+- Try/catch wrapper pe întregul script body
+- `Read-Host "Apasa ENTER pentru a inchide"` mereu la sfârșit (nu se mai închide instant)
+- `throw` în loc de `exit 1` în interiorul try (pentru catch corect)
+- Verificări opționale pentru fișiere dev (autorun.inf, burn-gui.ps1) — nu mai arată [LIPSA] pe PC instalat
+- WebView2 SDK marcat ca [OPTIONAL] (galben) nu [LIPSA] (roșu)
+
+#### REGULA CRITICĂ: setup.ps1 trebuie să fie 100% ASCII
+- PowerShell 5.1 nu citește corect UTF-8 fără BOM
+- Orice caracter non-ASCII (em-dash, diacritice românești, etc.) va cauza parse error
+- Verificare: `python3 -c "for b in open('setup.ps1','rb').read(): assert b<128"`
+- Nu e nevoie de BOM dacă fișierul e pur ASCII
+
+#### BUG REZOLVAT: Studii stuck după dezinstalare — nu se puteau șterge
+- **Simptom**: după dezinstalare + reinstalare, studiul rămânea în listă fără fișiere DICOM, butonul X nu funcționa
+- **Root cause**: `DeleteStudy()` avea guard `if (study.Status == Burning || Receiving) return;` — studiile redescoperite de ScanIncomingFolder intrau în status Receiving → ștergerea era blocată silent
+- **Fix 1**: Guard-ul din `DeleteStudy()` și `DeleteAll()` blochează DOAR status `Burning` (proces activ). Studiile `Receiving` se pot acum șterge.
+- **Fix 2**: `_knownStudyDirs.Remove()` doar dacă directorul a fost efectiv șters. Dacă ștergerea fișierelor eșuează (in use), intrarea rămâne în `_knownStudyDirs` → previne ScanIncomingFolder de la re-adăugare.
+- **Fix 3**: Aceeași logică aplicată și în `DeleteSeries()` (când ultimul series se șterge → study removal)
+
+#### Pre-burn check: Weasis tools missing dialog
+- `BurnService.CheckWeasisTools()` — verifică weasis-launcher.jar + JRE (x86 sau x64)
+- `MainViewModel.CheckAndOfferSetup()` — dialog cu:
+  - Calea unde ar trebui să fie tools
+  - Calea setup.ps1
+  - Buton Yes/No: lansează setup.ps1 ca Administrator
+- Apelat din: BurnStudy, BurnSelected, PACS burn handler
+- Localizat RO/RU/EN (WeasisToolsTitle, WeasisToolsMissing, WeasisToolsSetupPath, WeasisToolsRunSetup, WeasisToolsNotFound, WeasisToolsSetupLaunched)
+
+#### Eroare serviciu — mesaj îmbunătățit
+- `SettingsDialog.RestartService_Click()` — `InvalidOperationException` poate fi "not installed" SAU "failed to start"
+- Fix: verifică `InnerException.Message` pentru "Cannot open" / "was not found" → afișează `L("ServiceNotInstalled")` în loc de mesaj generic de eroare
+
+#### Fișiere modificate:
+- **`Services/BurnService.cs`** — `-sta` flag × 3, `CheckWeasisTools()`, `SaveStudyInfo()` public
+- **`ViewModels/MainViewModel.cs`** — `CheckAndOfferSetup()`, fix DeleteStudy/DeleteAll/DeleteSeries guards, `_knownStudyDirs` safe removal
+- **`Views/SettingsDialog.xaml.cs`** — eroare serviciu "not installed" vs "failed"
+- **`Helpers/LocalizationHelper.cs`** — WeasisTools* keys × 3 limbi
+- **`scripts/setup.ps1`** — ASCII pur, error handling, Read-Host pause, format strings simplificate
+- **`src/Installer/Package.wxs`** — C_CleanupProgramData component
+
+#### Build: ✅ 0 erori C#, 0 erori WiX
+#### Output: `output/DicomReceiver-Installer-Online.exe` (63 MB), `output/DicomReceiver-Installer-Offline.exe` (272 MB)
+
 ## Hardware
 - Work: internal DVD writer
 - Home: external USB DVD writer (MATSHITA DVD-RAM UJ862AS)

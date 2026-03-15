@@ -63,6 +63,7 @@
       <ComponentGroupRef Id="CG_Scripts" />
       <ComponentGroupRef Id="CG_Templates" />
       <ComponentRef Id="C_CleanupDirs" />
+      <ComponentRef Id="C_CleanupProgramData" />
     </Feature>
 
     <Feature Id="F_DesktopShortcut" Title="Desktop Shortcut" Description="Create a shortcut on the Desktop" Level="1">
@@ -120,6 +121,14 @@
       </Component>
     </DirectoryRef>
     <SetProperty Id="INSTALLFOLDER_PROP" Value="[INSTALLFOLDER]" Before="RemoveFiles" Sequence="execute" />
+
+    <!-- Cleanup shared settings (C:\ProgramData\WeasisBurn) on uninstall -->
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="C_CleanupProgramData" Guid="d6f0a3b4-9e7c-4d1f-8b2a-5c3e7f8a9b0c" KeyPath="yes">
+        <util:RemoveFolderEx On="uninstall" Property="PROGRAMDATA_WEASIS_PROP" />
+      </Component>
+    </DirectoryRef>
+    <SetProperty Id="PROGRAMDATA_WEASIS_PROP" Value="[CommonAppDataFolder]WeasisBurn" Before="RemoveFiles" Sequence="execute" />
 
 
   </Package>

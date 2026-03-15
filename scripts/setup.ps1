@@ -15,7 +15,7 @@ $WeasisDir   = Join-Path $ToolsDir "weasis-portable"
 # Show paths immediately so user sees where files will go
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "  DICOM Receiver — Setup Tools" -ForegroundColor Cyan
+Write-Host "  DICOM Receiver - Setup Tools" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Locatie instalare: $ProjectRoot" -ForegroundColor White
@@ -118,7 +118,8 @@ if (-not (Test-Path $WeasisDir)) {
         }
     }
 
-    Write-Ok "Gasit: $foundZip ($('{0:N1}' -f ((Get-Item $foundZip).Length / 1MB)) MB)"
+    $zipSizeMB = '{0:N1}' -f ((Get-Item $foundZip).Length / 1MB)
+    Write-Ok "Gasit: $foundZip ($zipSizeMB MB)"
 
     # Move to tools dir if not already there
     if ($foundZip -ne $weasisZipPath) {
@@ -179,7 +180,8 @@ if (Test-Path (Join-Path $jreWindowsDir "bin\java.exe")) {
         }
     }
 
-    Write-Ok "JRE x86 descarcat: $('{0:N1}' -f ((Get-Item $jreZipPath).Length / 1MB)) MB"
+    $jreSizeMB = '{0:N1}' -f ((Get-Item $jreZipPath).Length / 1MB)
+    Write-Ok "JRE x86 descarcat: $jreSizeMB MB"
 
     Write-Status "Extrag JRE x86..."
     $jreTempDir = Join-Path $ToolsDir "jre-temp"
@@ -242,7 +244,8 @@ if (Test-Path (Join-Path $jreWindowsX64Dir "bin\java.exe")) {
         }
     }
 
-    Write-Ok "JRE x64 descarcat: $('{0:N1}' -f ((Get-Item $jreX64ZipPath).Length / 1MB)) MB"
+    $jreX64SizeMB = '{0:N1}' -f ((Get-Item $jreX64ZipPath).Length / 1MB)
+    Write-Ok "JRE x64 descarcat: $jreX64SizeMB MB"
 
     Write-Status "Extrag JRE x64..."
     $jreTempDir = Join-Path $ToolsDir "jre-temp-x64"
@@ -306,7 +309,8 @@ if ((Test-Path $wv2CoreDll) -and (Test-Path $wv2WpfDll) -and (Test-Path $wv2Load
         }
     }
 
-    Write-Ok "WebView2 NuGet descarcat: $('{0:N1}' -f ((Get-Item $wv2ZipPath).Length / 1MB)) MB"
+    $wv2SizeMB = '{0:N1}' -f ((Get-Item $wv2ZipPath).Length / 1MB)
+    Write-Ok "WebView2 NuGet descarcat: $wv2SizeMB MB"
 
     Write-Status "Extrag WebView2 SDK..."
     $wv2TempDir = Join-Path $ToolsDir "webview2-temp"
@@ -364,7 +368,8 @@ if ((Test-Path $wv2CoreDll) -and (Test-Path $wv2WpfDll) -and (Test-Path $wv2Load
 
     if ($extractOk) {
         $wv2Size = (Get-ChildItem -Path $WebView2Dir -File | Measure-Object -Property Length -Sum).Sum
-        Write-Ok "WebView2 SDK extras: $('{0:N1}' -f ($wv2Size / 1MB)) MB"
+        $wv2ExtractedMB = '{0:N1}' -f ($wv2Size / 1MB)
+        Write-Ok "WebView2 SDK extras: $wv2ExtractedMB MB"
     } else {
         Write-Host "    [EROARE] Extractia WebView2 SDK a esuat." -ForegroundColor Red
     }
@@ -469,7 +474,8 @@ if (Test-Path $dcmmkdirExe) {
         }
     }
 
-    Write-Ok "dcmtk descarcat: $('{0:N1}' -f ((Get-Item $dcmtkZipPath).Length / 1MB)) MB"
+    $dcmtkSizeMB = '{0:N1}' -f ((Get-Item $dcmtkZipPath).Length / 1MB)
+    Write-Ok "dcmtk descarcat: $dcmtkSizeMB MB"
 
     Write-Status "Extrag dcmtk..."
     $dcmtkTempDir = Join-Path $ToolsDir "dcmtk-temp"
