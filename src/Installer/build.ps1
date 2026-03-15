@@ -31,7 +31,7 @@ if (-not $Online -and -not $Offline) {
 }
 
 $step = 1
-$totalSteps = 2 + [int]$Online + [int]$Offline + [int]$Online + [int]$Offline
+$totalSteps = 2 + ([bool]$Online -as [int]) * 2 + ([bool]$Offline -as [int]) * 2
 
 # Step 1: Publish DicomReceiver
 Write-Host "[$step/$totalSteps] Publishing DicomReceiver..." -ForegroundColor Yellow
@@ -53,6 +53,7 @@ $step++
 if ($Online) {
     # Build MSI (online)
     Write-Host "[$step/$totalSteps] Building Online MSI..." -ForegroundColor Yellow
+    dotnet clean "$root\src\Installer\Installer.wixproj" -c $Configuration --nologo -v q 2>$null
     dotnet build "$root\src\Installer\Installer.wixproj" `
         -c $Configuration `
         -p:IncludeTools=false `
@@ -62,6 +63,7 @@ if ($Online) {
 
     # Build Bundle (online) — wraps .NET 8 Runtime + MSI
     Write-Host "[$step/$totalSteps] Building Online Bundle (.exe)..." -ForegroundColor Yellow
+    dotnet clean "$root\src\Bundle\Bundle.wixproj" -c $Configuration --nologo -v q 2>$null
     dotnet build "$root\src\Bundle\Bundle.wixproj" `
         -c $Configuration `
         -p:IncludeTools=false `
@@ -70,8 +72,9 @@ if ($Online) {
 
     $onlineExe = Get-ChildItem "$root\src\Bundle\bin\$Configuration" -Filter "*Online*.exe" -Recurse | Select-Object -First 1
     if ($onlineExe) {
-        Write-Host "  Online: $($onlineExe.FullName)" -ForegroundColor Green
-        Write-Host "  Size: $([math]::Round($onlineExe.Length / 1MB, 1)) MB" -ForegroundColor Green
+        New-Item "$root\output" -ItemType Directory -Force | Out-Null
+        Copy-Item $onlineExe.FullName "$root\output\" -Force
+        Write-Host "  Online: $($onlineExe.Name) ($([math]::Round($onlineExe.Length / 1MB, 1)) MB)" -ForegroundColor Green
     }
     $step++
 }
@@ -87,6 +90,7 @@ if ($Offline) {
     } else {
         # Build MSI (offline)
         Write-Host "[$step/$totalSteps] Building Offline MSI (this may take a while)..." -ForegroundColor Yellow
+        dotnet clean "$root\src\Installer\Installer.wixproj" -c $Configuration --nologo -v q 2>$null
         dotnet build "$root\src\Installer\Installer.wixproj" `
             -c $Configuration `
             -p:IncludeTools=true `
@@ -96,6 +100,7 @@ if ($Offline) {
 
         # Build Bundle (offline)
         Write-Host "[$step/$totalSteps] Building Offline Bundle (.exe)..." -ForegroundColor Yellow
+        dotnet clean "$root\src\Bundle\Bundle.wixproj" -c $Configuration --nologo -v q 2>$null
         dotnet build "$root\src\Bundle\Bundle.wixproj" `
             -c $Configuration `
             -p:IncludeTools=true `
@@ -104,8 +109,9 @@ if ($Offline) {
 
         $offlineExe = Get-ChildItem "$root\src\Bundle\bin\$Configuration" -Filter "*Offline*.exe" -Recurse | Select-Object -First 1
         if ($offlineExe) {
-            Write-Host "  Offline: $($offlineExe.FullName)" -ForegroundColor Green
-            Write-Host "  Size: $([math]::Round($offlineExe.Length / 1MB, 1)) MB" -ForegroundColor Green
+            New-Item "$root\output" -ItemType Directory -Force | Out-Null
+            Copy-Item $offlineExe.FullName "$root\output\" -Force
+            Write-Host "  Offline: $($offlineExe.Name) ($([math]::Round($offlineExe.Length / 1MB, 1)) MB)" -ForegroundColor Green
         }
         $step++
     }
@@ -113,5 +119,9 @@ if ($Offline) {
 
 Write-Host ""
 Write-Host "=== Build Complete ===" -ForegroundColor Cyan
-Write-Host "MSI:    src\Installer\bin\$Configuration\" -ForegroundColor Cyan
-Write-Host "Bundle: src\Bundle\bin\$Configuration\" -ForegroundColor Cyan
+Write-Host "Output: $root\output\" -ForegroundColor Cyan
+Get-ChildItem "$root\output\*.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "  $($_.Name) - $([math]::Round($_.Length / 1MB, 1)) MB" -ForegroundColor Green
+}
+Write-Host ""
+Read-Host "Press Enter to close"

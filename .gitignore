@@ -19,6 +19,9 @@ src/Bundle/bin/
 src/Bundle/obj/
 src/Bundle/prereqs/
 
+# Build output (installers)
+output/
+
 # Publish output (build artifacts)
 publish/
 

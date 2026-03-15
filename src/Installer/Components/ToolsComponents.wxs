@@ -1,0 +1,18 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!-- Tools: weasis-portable (~490 MB), dcmtk (~37 MB), webview2 (~1 MB) -->
+  <!-- Only included in offline variant (IncludeTools=true) -->
+
+  <?if $(var.IncludeTools) = true ?>
+
+  <Fragment>
+    <ComponentGroup Id="CG_Tools" Directory="TOOLS_DIR">
+      <Files Include="$(var.ToolsDir)weasis-portable\**" />
+      <Files Include="$(var.ToolsDir)dcmtk\**" />
+      <Files Include="$(var.ToolsDir)webview2\**" />
+    </ComponentGroup>
+  </Fragment>
+
+  <?endif?>
+
+</Wix>

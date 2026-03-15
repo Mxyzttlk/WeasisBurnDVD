@@ -7,18 +7,13 @@
     <OutputName Condition="'$(IncludeTools)' == 'true'">DicomReceiver-Installer-Offline</OutputName>
 
     <IncludeTools Condition="'$(IncludeTools)' == ''">false</IncludeTools>
+    <MsiName Condition="'$(IncludeTools)' != 'true'">DicomReceiver-Setup-Online.msi</MsiName>
+    <MsiName Condition="'$(IncludeTools)' == 'true'">DicomReceiver-Setup-Offline.msi</MsiName>
     <DefineConstants>
       IncludeTools=$(IncludeTools);
       AppPublishDir=$(MSBuildThisFileDirectory)..\..\publish\app\;
-      ServicePublishDir=$(MSBuildThisFileDirectory)..\..\publish\service\;
-      ScriptsDir=$(MSBuildThisFileDirectory)..\..\scripts\;
-      MsiPath=$(MSBuildThisFileDirectory)..\Installer\bin\$(Configuration)\DicomReceiver-Setup-Online.msi;
+      MsiPath=$(MSBuildThisFileDirectory)..\Installer\bin\$(Configuration)\$(MsiName);
       ProductVersion=1.0.0
-    </DefineConstants>
-    <!-- Use offline MSI path when tools are included -->
-    <DefineConstants Condition="'$(IncludeTools)' == 'true'">
-      $(DefineConstants);
-      MsiPath=$(MSBuildThisFileDirectory)..\Installer\bin\$(Configuration)\DicomReceiver-Setup-Offline.msi
     </DefineConstants>
   </PropertyGroup>
 
