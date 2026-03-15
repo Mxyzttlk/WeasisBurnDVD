@@ -27,15 +27,8 @@
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
     <Property Id="ARPHELPLINK" Value="https://github.com/Mxyzttlk" />
 
-    <!-- .NET 8 Desktop Runtime detection -->
-    <Property Id="NETDESKTOPRUNTIME80">
-      <RegistrySearch Id="NetDesktopRuntime80"
-                      Root="HKLM"
-                      Key="SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
-                      Type="raw" />
-    </Property>
-    <Launch Condition="Installed OR NETDESKTOPRUNTIME80"
-            Message="DICOM Receiver requires .NET Desktop Runtime 8.0.&#13;&#10;Download from: https://dotnet.microsoft.com/download/dotnet/8.0" />
+    <!-- .NET 8 Desktop Runtime: detection and install handled by Bundle (Burn bootstrapper).
+         No Launch Condition here — the Bundle installs .NET before running this MSI. -->
 
     <!-- Directory structure -->
     <StandardDirectory Id="ProgramFiles64Folder">

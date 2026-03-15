@@ -17,9 +17,11 @@
                         ErrorControl="normal"
                         Account="LocalSystem" />
 
+        <!-- Don't start on install — service starts on next boot (Start=auto above)
+             or when DicomReceiver.exe is opened. Avoids startup failures on fresh install
+             where settings/folders don't exist yet. -->
         <ServiceControl Id="SC_DicomReceiver"
                         Name="DicomReceiverService"
-                        Start="install"
                         Stop="both"
                         Remove="uninstall"
                         Wait="yes" />
