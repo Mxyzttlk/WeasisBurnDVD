@@ -117,19 +117,41 @@ function New-IconImage {
     return $bmp
 }
 
+function Resize-Image {
+    param([System.Drawing.Bitmap]$Source, [int]$TargetSize)
+
+    $dst = New-Object System.Drawing.Bitmap($TargetSize, $TargetSize)
+    $g = [System.Drawing.Graphics]::FromImage($dst)
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+    $g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+    $g.DrawImage($Source, 0, 0, $TargetSize, $TargetSize)
+    $g.Dispose()
+    return $dst
+}
+
 function Save-MultiSizeIcon {
     param([string]$OutputPath, [int[]]$Sizes)
 
+    # Render at high resolution (512px) then downscale for sharp results
+    $baseSize = 512
+    $baseBmp = New-IconImage -Size $baseSize
     $images = @()
 
     foreach ($size in $Sizes) {
-        $bmp = New-IconImage -Size $size
+        if ($size -eq $baseSize) {
+            $bmp = $baseBmp.Clone()
+        } else {
+            $bmp = Resize-Image -Source $baseBmp -TargetSize $size
+        }
         $ms = New-Object System.IO.MemoryStream
         $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
         $images += @{ Width = $size; Height = $size; Data = $ms.ToArray() }
         $ms.Dispose()
         $bmp.Dispose()
     }
+    $baseBmp.Dispose()
 
     $count = $images.Count
     $headerSize = 6
@@ -177,10 +199,10 @@ function Save-MultiSizeIcon {
 # Also save a preview PNG at 256px for easy viewing
 function Save-Preview {
     param([string]$OutputPath)
-    $bmp = New-IconImage -Size 256
+    $bmp = New-IconImage -Size 512
     $bmp.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()
-    Write-Host "Preview saved: $OutputPath"
+    Write-Host "Preview saved: $OutputPath (512px)"
 }
 
 # Generate the icon

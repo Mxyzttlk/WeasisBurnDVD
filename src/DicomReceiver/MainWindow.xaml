@@ -32,6 +32,13 @@
                     <TextBlock x:Name="TxtSettingsLabel" Text="Settings" VerticalAlignment="Center" />
                 </StackPanel>
             </Button>
+            <Button x:Name="BtnAbout"
+                    Style="{StaticResource DarkButton}"
+                    Padding="8,4" Margin="6,0,0,0"
+                    Click="BtnAbout_Click"
+                    ToolTip="About">
+                <TextBlock Text="&#xE946;" FontFamily="Segoe MDL2 Assets" FontSize="14" VerticalAlignment="Center" />
+            </Button>
         </StackPanel>
 
     <TabControl x:Name="MainTabControl" Background="{StaticResource BackgroundBrush}"

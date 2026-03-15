@@ -160,6 +160,12 @@ public static class LocalizationHelper
             ["ImportComplete"] = "Import complet: {0} studii",
             ["ImportError"] = "Eroare import",
             ["ImportDuplicateSkip"] = "Studiu existent, se omite: {0}",
+            // About
+            ["About"] = "Despre",
+            ["AboutTitle"] = "Despre aplicatie",
+            ["AboutCopyright"] = "Copyright (c) 2026 Mxyzttlk. Toate drepturile rezervate.",
+            ["AboutLicense"] = "Licenta proprietara. Redistribuirea neautorizata este interzisa.",
+            ["AboutComponents"] = "Componente Open Source",
         },
         ["ru"] = new()
         {
@@ -312,6 +318,12 @@ public static class LocalizationHelper
             ["ImportComplete"] = "\u0418\u043c\u043f\u043e\u0440\u0442 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d: {0} \u0438\u0441\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u043d\u0438\u0439",
             ["ImportError"] = "\u041e\u0448\u0438\u0431\u043a\u0430 \u0438\u043c\u043f\u043e\u0440\u0442\u0430",
             ["ImportDuplicateSkip"] = "\u0418\u0441\u0441\u043b\u0435\u0434\u043e\u0432\u0430\u043d\u0438\u0435 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u0435\u0442, \u043f\u0440\u043e\u043f\u0443\u0441\u043a: {0}",
+            // About
+            ["About"] = "\u041e \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0435",
+            ["AboutTitle"] = "\u041e \u043f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0435",
+            ["AboutCopyright"] = "Copyright (c) 2026 Mxyzttlk. \u0412\u0441\u0435 \u043f\u0440\u0430\u0432\u0430 \u0437\u0430\u0449\u0438\u0449\u0435\u043d\u044b.",
+            ["AboutLicense"] = "\u041f\u0440\u043e\u043f\u0440\u0438\u0435\u0442\u0430\u0440\u043d\u0430\u044f \u043b\u0438\u0446\u0435\u043d\u0437\u0438\u044f. \u041d\u0435\u0441\u0430\u043d\u043a\u0446\u0438\u043e\u043d\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u043e\u0435 \u0440\u0430\u0441\u043f\u0440\u043e\u0441\u0442\u0440\u0430\u043d\u0435\u043d\u0438\u0435 \u0437\u0430\u043f\u0440\u0435\u0449\u0435\u043d\u043e.",
+            ["AboutComponents"] = "\u041a\u043e\u043c\u043f\u043e\u043d\u0435\u043d\u0442\u044b Open Source",
         },
         ["en"] = new()
         {
@@ -464,6 +476,12 @@ public static class LocalizationHelper
             ["ImportComplete"] = "Import complete: {0} studies",
             ["ImportError"] = "Import error",
             ["ImportDuplicateSkip"] = "Study already exists, skipping: {0}",
+            // About
+            ["About"] = "About",
+            ["AboutTitle"] = "About",
+            ["AboutCopyright"] = "Copyright (c) 2026 Mxyzttlk. All rights reserved.",
+            ["AboutLicense"] = "Proprietary license. Unauthorized distribution is prohibited.",
+            ["AboutComponents"] = "Open Source Components",
         }
     };
 

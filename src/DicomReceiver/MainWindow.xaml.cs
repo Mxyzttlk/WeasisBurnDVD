@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using DicomReceiver.Helpers;
 using DicomReceiver.Models;
 using DicomReceiver.ViewModels;
+using DicomReceiver.Views;
 
 namespace DicomReceiver;
 
@@ -87,6 +88,11 @@ public partial class MainWindow : Window
         }
     }
 
+    private void BtnAbout_Click(object sender, RoutedEventArgs e)
+    {
+        new AboutDialog { Owner = this }.ShowDialog();
+    }
+
     private void ApplyLocalization()
     {
         // Tab headers
@@ -95,6 +101,7 @@ public partial class MainWindow : Window
 
         // Toolbar
         TxtSettingsLabel.Text = L("Settings");
+        BtnAbout.ToolTip = L("About");
         TxtImportLabel.Text = L("Import");
         BtnDeleteAll.Content = L("DeleteAll");
 
