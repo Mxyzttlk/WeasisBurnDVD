@@ -13,6 +13,11 @@ src/DicomReceiver/bin/
 src/DicomReceiver/obj/
 src/DicomReceiverService/bin/
 src/DicomReceiverService/obj/
+src/Installer/bin/
+src/Installer/obj/
+
+# Publish output (build artifacts)
+publish/
 
 # Windows device name artifact
 nul
